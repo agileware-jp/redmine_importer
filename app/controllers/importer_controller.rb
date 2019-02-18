@@ -4,11 +4,12 @@ require 'tempfile'
 MultipleIssuesForUniqueValue = Class.new(Exception)
 NoIssueForUniqueValue = Class.new(Exception)
 
-class Journal < ActiveRecord::Base
+module JournalPrepend
   def empty?(*args)
     (details.empty? && notes.blank?)
   end
 end
+Journal.prepend JournalPrepend
 
 class ImporterController < ApplicationController
   unloadable
@@ -526,6 +527,8 @@ class ImporterController < ApplicationController
                       value.to_date.to_s(:db)
                     when 'bool'
                       convert_to_0_or_1(value)
+                    when 'enumeration'
+                      cf.possible_values_options.to_h[value]
                     else
                       value
                     end
