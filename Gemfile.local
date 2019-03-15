@@ -1,0 +1,15 @@
+group :development, :test do
+    gem 'pry-rails'
+    gem 'pry-byebug'
+    gem 'rspec-rails'
+    gem 'factory_bot_rails'
+    gem 'rubocop', require: false
+    gem 'rubocop-no_keyword_args', git: 'https://github.com/agileware-jp/rubocop-no_keyword_args.git', require: false
+end
+
+group :test do
+    gem 'database_cleaner' if RUBY_VERSION >= '2.2.0'
+    gem 'rspec_junit_formatter'
+    gem 'vcr'
+    gem 'webmock'
+end

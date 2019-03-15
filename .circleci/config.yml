@@ -1,0 +1,56 @@
+version: 2
+
+caches:
+  redmine_cache: &redmine_cache
+    key: v1-redmine-{{ checksum "_redmine_" }}-{{ checksum ".circleci/install_redmine.sh" }}
+    paths: /tmp/redmine
+  bundle_cache: &bundle_cache
+    key: v1-ruby-dep-{{ checksum "_redmine_" }}-{{ checksum "Gemfile.local" }}
+    paths: /tmp/redmine/vendor/bundle
+
+redmine_steps: &redmine_steps
+  steps:
+    - checkout
+    - attach_workspace:
+        at: ~/project
+    - run: echo $REDMINE > _redmine_
+    - restore_cache: *redmine_cache
+    - run: .circleci/install_redmine.sh
+    - save_cache: *redmine_cache
+
+    - restore_cache: *bundle_cache
+    - run:
+        working_directory: /tmp/redmine
+        command: bundle install --path vendor/bundle --without development rmagick
+    - save_cache: *bundle_cache
+
+    - run:
+        working_directory: /tmp/redmine/plugins
+        command: |
+          git clone git@github.com:agileware-jp/alm.git
+
+    - run:
+        working_directory: /tmp/redmine
+        command: |
+          bundle exec rake db:create db:migrate redmine:plugins:migrate RAILS_ENV=test
+          bundle exec rails generate rspec:install
+          bundle exec rspec plugins/$PLUGIN_NAME/spec/
+          bundle exec rake redmine:plugins:migrate NAME=$PLUGIN_NAME VERSION=0 RAILS_ENV=test
+jobs:
+  redmine_346:
+    docker:
+      - image: circleci/ruby:2.4-browsers
+    environment:
+      - REDMINE: redmine-3.4.6
+      - PLUGIN_NAME: lychee_issue_board
+    <<: *redmine_steps
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - redmine_346:
+          filters:
+            branches:
+              ignore:
+                - trial
