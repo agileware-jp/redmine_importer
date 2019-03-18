@@ -1,8 +1,6 @@
 AllCops:
   TargetRubyVersion: 2.2
   TargetRailsVersion: 4.2
-  Include:
-    - spec/**/*
 
 inherit_gem:
   rubocop-no_keyword_args: config/default.yml
