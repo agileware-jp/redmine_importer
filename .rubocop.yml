@@ -1,0 +1,27 @@
+AllCops:
+  TargetRubyVersion: 2.2
+  TargetRailsVersion: 4.2
+
+inherit_gem:
+  rubocop-no_keyword_args: config/default.yml
+  rubocop-lychee: config/default.yml
+
+Lint/NoKeywordArgs:
+  Exclude:
+    - spec/**/*
+
+Rails:
+  Enabled: true
+
+Rails/ApplicationRecord:
+  Enabled: false
+
+Style/AsciiComments:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false
+
+Metrics/BlockLength:
+  Exclude:
+    - spec/**/*_spec.rb

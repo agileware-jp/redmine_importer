@@ -6,7 +6,7 @@ class ImportInProgress < ActiveRecord::Base
 
   before_save :encode_csv_data
 
-  attr_accessible :user_id
+  attr_accessible :user_id # rubocop:disable Lychee/ProtectedAttributes
 
   private
   def encode_csv_data
