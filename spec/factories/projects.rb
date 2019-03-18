@@ -5,7 +5,9 @@ FactoryBot.define do
     trackers { [FactoryBot.create(:tracker)] }
 
     after(:create) do |project|
-      project.trackers << FactoryBot.create_list(:tracker, 3) if Tracker.count == 0
+      if Tracker.count.zero?
+        project.trackers << FactoryBot.create_list(:tracker, 3)
+      end
     end
   end
 end

@@ -12,7 +12,8 @@ FactoryBot.define do
 
       after(:create) do |issue_custom_field|
         3.times do
-          issue_custom_field.enumerations << create(:custom_field_enumeration, custom_field: issue_custom_field)
+          issue_custom_field.enumerations <<
+            create(:custom_field_enumeration, custom_field: issue_custom_field)
         end
       end
     end
