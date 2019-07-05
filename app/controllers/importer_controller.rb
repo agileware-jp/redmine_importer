@@ -13,7 +13,7 @@ end
 class ImporterController < ApplicationController
   unloadable
 
-  before_filter :find_project
+  before_action :find_project
 
   ISSUE_ATTRS = [:id, :subject, :assigned_to, :fixed_version,
                  :author, :description, :category, :priority, :tracker, :status,
