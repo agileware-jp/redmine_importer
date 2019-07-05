@@ -2,7 +2,7 @@ require File.expand_path('../../test_helper', __FILE__)
 
 class ImporterControllerTest < ActionController::TestCase
   def setup
-    @project = Project.create! :name => 'foo'
+    @project = Project.create! :name => 'foo', :identifier => 'importer_controller_test'
     @tracker = Tracker.new(:name => 'Defect')
     @tracker.default_status = IssueStatus.find_or_create_by!(name: 'New')
     @tracker.save!
