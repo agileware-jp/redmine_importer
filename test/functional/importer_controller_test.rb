@@ -73,11 +73,11 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should add watchers' do
-    assert issue_has_none_of_these_watchers?(@issue, [@user, @user.parent])
+    assert issue_has_none_of_these_watchers?(@issue, [@user])
     post :result, build_params
     assert_response :success
     @issue.reload
-    assert issue_has_all_of_these_watchers?(@issue, [@user, @user.parent])
+    assert issue_has_all_of_these_watchers?(@issue, [@user])
   end
 
   protected
@@ -168,9 +168,7 @@ class ImporterControllerTest < ActionController::TestCase
                        :lastname => 'H',
                        :mail => 'a@example.com'
     sponsor.login = 'alice'
-    sponsor.parent = sponsor
 
-    user.parent = sponsor
     membership = user.memberships.build(:project => project)
     membership.roles << role
     membership.principal = user
