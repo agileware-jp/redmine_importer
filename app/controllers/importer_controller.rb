@@ -31,7 +31,7 @@ class ImporterController < ApplicationController
     end
 
     # Delete existing iip to ensure there can't be two iips for a user
-    ImportInProgress.delete_all(["user_id = ?",User.current.id])
+    ImportInProgress.where("user_id = ?", User.current.id).delete_all
     # save import-in-progress data
     iip = ImportInProgress.find_or_create_by(user_id: User.current.id)
     iip.quote_char = params[:wrapper]
@@ -329,7 +329,7 @@ class ImporterController < ApplicationController
     iip.delete
 
     # Garbage prevention: clean up iips older than 3 days
-    ImportInProgress.delete_all(["created < ?",Time.new - 3*24*60*60])
+    ImportInProgress.where("created < ?", Time.new - 3*24*60*60).delete_all
   end
 
   def translate_unique_attr(issue, unique_field, unique_attr, unique_attr_checked)
