@@ -1,5 +1,8 @@
 resources :projects do 
-  match '/importer/', :to => 'importer#index', :via => [:get, :post]
-  match '/importer/match', :to => 'importer#match', :via => [:get, :post]
-  match '/importer/result', :to => 'importer#result', :via => [:get, :post]
+  get '/importer/', to: 'importer#index'
+  post '/importer/', to: 'importer#index'
+  get '/importer/match', to: 'importer#match'
+  post '/importer/match', to: 'importer#match'
+  get '/importer/result', to: 'importer#result'
+  post '/importer/result', to: 'importer#result'
 end
