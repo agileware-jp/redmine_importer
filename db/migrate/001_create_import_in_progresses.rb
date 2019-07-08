@@ -1,4 +1,4 @@
-class CreateImportInProgresses < ActiveRecord::Migration
+class CreateImportInProgresses < ActiveRecord::Migration[4.2]
   def self.up
     create_table :import_in_progresses do |t|
       t.column :user_id, :integer, :null => false
