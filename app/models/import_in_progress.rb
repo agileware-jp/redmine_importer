@@ -6,8 +6,6 @@ class ImportInProgress < ActiveRecord::Base
 
   before_save :encode_csv_data
 
-  attr_accessible :user_id
-
   private
   def encode_csv_data
     return if self.csv_data.blank?
