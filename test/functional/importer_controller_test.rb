@@ -1,6 +1,8 @@
 require File.expand_path('../../test_helper', __FILE__)
 
 class ImporterControllerTest < ActionController::TestCase
+  include ActiveJob::TestHelper
+
   def setup
     @project = Project.create! :name => 'foo', :identifier => 'importer_controller_test'
     @tracker = Tracker.new(:name => 'Defect')
