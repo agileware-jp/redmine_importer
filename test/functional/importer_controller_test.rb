@@ -80,6 +80,51 @@ class ImporterControllerTest < ActionController::TestCase
     assert issue_has_all_of_these_watchers?(@issue, [@user])
   end
 
+  test 'should handle key value list value (add enumeration)' do
+    IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
+    @iip.destroy
+    @iip = create_iip!('KeyValueList', @user, @project)
+    assert CustomFieldEnumeration.find_by(name: 'Okinawa').nil?
+    post :result, build_params(update_issue: nil, add_enumerations: true)
+    assert_response :success
+    assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
+    assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
+    assert keyval_vals_for(Issue.find_by!(subject: 'サーターアンダギー')) == ['Okinawa']
+    assert CustomFieldEnumeration.find_by(name: 'Okinawa')
+  end
+
+  test 'should handle key value list value (not add enumeration)' do
+    IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
+    @iip.destroy
+    @iip = create_iip!('KeyValueList', @user, @project)
+    post :result, build_params(update_issue: nil)
+    assert_response :success
+    assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
+    assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
+    assert Issue.find_by(subject: 'サーターアンダギー').nil?
+  end
+
+  test 'should handle multiple key value list values' do
+    @iip.destroy
+    @iip = create_iip!('KeyValueListMultiple', @user, @project)
+    post :result, build_params(update_issue: nil, add_enumerations: true)
+    assert_response :success
+    assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
+    assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
+    issue = Issue.find_by!(subject: 'タピオカ')
+    assert ['Tokyo', 'Osaka', 'Okinawa'].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) }
+  end
+
+  test 'should handle multiple key value list values (not add enumeration)' do
+    @iip.destroy
+    @iip = create_iip!('KeyValueListMultiple', @user, @project)
+    post :result, build_params(update_issue: nil)
+    assert_response :success
+    assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
+    assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
+    assert Issue.find_by(subject: 'タピオカ').nil?
+  end
+
   protected
 
   def build_params(opts={})
@@ -97,7 +142,8 @@ class ImporterControllerTest < ActionController::TestCase
         'Priority' => 'priority',
         'Tracker' => 'tracker',
         'Status' => 'status',
-        'Watchers' => 'watchers'
+        'Watchers' => 'watchers',
+        'Area' => 'Area'
       }
     )
   end
@@ -154,6 +200,12 @@ class ImporterControllerTest < ActionController::TestCase
     multival_field = CustomField.find_by_name! 'Tags'
     value_objs = issue.custom_values.where(custom_field_id: multival_field.id)
     values = value_objs.map(&:value)
+  end
+
+  def keyval_vals_for(issue)
+    keyval_field = CustomField.find_by_name! 'Area'
+    value_objs = issue.custom_values.where(custom_field_id: keyval_field.id)
+    value_objs.map { |value_obj| keyval_field.enumerations.find(value_obj.value).name }
   end
 
   def create_user!(role, project)
@@ -215,12 +267,16 @@ class ImporterControllerTest < ActionController::TestCase
     versions_field = create_multivalue_field!('Affected versions',
                                               'version',
                                               issue.project)
-    multival_field =     create_multivalue_field!('Tags',
+    multival_field = create_multivalue_field!('Tags',
                                               'list',
                                               issue.project,
                                               %w(tag1 tag2))
+    keyval_field = create_enumeration_field!('Area',
+                                            issue.project,
+                                            %w(Tokyo Osaka))
     issue.tracker.custom_fields << versions_field
     issue.tracker.custom_fields << multival_field
+    issue.tracker.custom_fields << keyval_field
     issue.tracker.save!
   end
 
@@ -230,6 +286,16 @@ class ImporterControllerTest < ActionController::TestCase
     field.projects << project
     field.possible_values = possible_vals if possible_vals
     field.save!
+    field
+  end
+
+  def create_enumeration_field!(name, project, enumerations)
+    field = IssueCustomField.new :name => name, :multiple => true, :field_format => 'enumeration'
+    field.projects << project
+    field.save!
+    enumerations.each.with_index(1) do |name, position|
+      CustomFieldEnumeration.create!(:name => name, :custom_field_id => field.id, :active => true, :position => position)
+    end
     field
   end
 

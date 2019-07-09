@@ -16,6 +16,7 @@ zh:
   label_importer_send_emails: "发送提醒邮件"
   label_importer_add_categories: "自动新增问题类别"
   label_importer_add_versions: "自动新增目标版本"
+  label_importer_add_enumerations: "Auto-add Key/value"
   label_update_issue: "更新已存在的问题"
   label_journal_field: "选择用于日志的字段:"
   label_unique_field: "选择用于标识问题的唯一字段:"
