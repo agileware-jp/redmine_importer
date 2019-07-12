@@ -1,0 +1,1 @@
+gem 'single_cov', group: :test

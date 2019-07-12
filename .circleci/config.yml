@@ -13,7 +13,7 @@ workflows:
       - redmine/test:
           name: 'redmine40-test'
           before-setup:
-            - run: touch plugins/redmine_importer/Gemfile # キャッシュ作成のため
+            - run: mv plugins/redmine_importer/Gemfile.local plugins/redmine_importer/Gemfile
             - redmine/generate_database_yml-pg
           executor: redmine/ruby-pg
           requires: [redmine40-download]
