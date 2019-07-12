@@ -127,6 +127,214 @@ class ImporterControllerTest < ActionController::TestCase
     assert Issue.find_by(subject: 'タピオカ').nil?
   end
 
+  test 'set issue id if use_issue_id=true' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n4423,Hi,Defect,New,Critical\n")
+    post :result, params: build_params(use_issue_id: 'true')
+    assert Issue.where(id: 4423, subject: 'Hi').exists?
+  end
+
+  test 'not set issue id if use_issue_id=' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n4423,Hi,Defect,New,Critical\n")
+    post :result, params: build_params(use_issue_id: nil)
+    assert !Issue.where(id: 4423, subject: 'Hi').exists?
+  end
+
+  test 'set author by author column' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Author\n4423,Hi,Defect,New,Critical,alice\n")
+    post :result, params: build_params.tap { |params| params[:fields_map]['Author'] = 'author' }
+    assert Issue.where(subject: 'Hi', author: User.find_by!(login: 'alice')).exists?
+  end
+
+  test 'set author to current_user' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Author\n4423,Hi,Defect,New,Critical,alice\n")
+    post :result, params: build_params
+    assert Issue.where(subject: 'Hi', author: User.find_by!(login: 'bob')).exists?
+  end
+
+  test 'add category if add_categories=true' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Category\n4423,Hi,Defect,New,Critical,cat\n")
+    post :result, params: build_params(add_categories: 'true').tap { |params| params[:fields_map]['Category'] = 'category' }
+    assert IssueCategory.where(project: @project, name: 'cat').exists?
+  end
+
+  test 'not add category if add_categories=' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Category\n4423,Hi,Defect,New,Critical,cat\n")
+    post :result, params: build_params.tap { |params| params[:fields_map]['Category'] = 'category' }
+    assert !IssueCategory.where(project: @project, name: 'cat').exists?
+  end
+
+  test 'add version if add_versions=true' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Version\n4423,Hi,Defect,New,Critical,ver\n")
+    post :result, params: build_params(add_versions: 'true').tap { |params| params[:fields_map]['Version'] = 'fixed_version' }
+    assert Version.where(project: @project, name: 'ver').exists?
+  end
+
+  test 'not add version if add_versions=' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Version\n4423,Hi,Defect,New,Critical,ver\n")
+    post :result, params: build_params.tap { |params| params[:fields_map]['Version'] = 'fixed_version' }
+    assert !Version.where(project: @project, name: 'ver').exists?
+  end
+
+  test 'assign issue to assigned_to column' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,AssignedTo\n4423,Hi,Defect,New,Critical,alice\n")
+    post :result, params: build_params.tap { |params| params[:fields_map]['AssignedTo'] = 'assigned_to' }
+    assert Issue.where(subject: 'Hi', assigned_to: User.find_by!(login: 'alice')).exists?
+  end
+
+  test 'not assign issue' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,AssignedTo\n4423,Hi,Defect,New,Critical,\n")
+    post :result, params: build_params.tap { |params| params[:fields_map]['AssignedTo'] = 'assigned_to' }
+    assert !Issue.where(subject: 'Hi', assigned_to: User.find_by!(login: 'alice')).exists?
+  end
+
+  test 'set default project/tracker/author' do
+    @iip.update!(csv_data: "Subject,Priority\ntest default,Critical\n")
+    post :result, params: build_params(default_tracker: @tracker.id)
+    assert Issue.where(subject: 'test default', tracker: @tracker, author: @user).exists?
+  end
+
+  test 'send email once when Send email notifications checkbox is not checked and issue added' do
+    Mailer.expects(:deliver_issue_add)
+
+    @iip.update!(csv_data: "Subject,Tracker,Priority\ntest default,Defect,Critical\n")
+    post :result, params: build_params
+  end
+
+  test 'send email twice when Send email notifications checkbox is checked and issue added' do
+    # It send notification email twice
+    # - redmine_importer
+    # - issue callback
+    Mailer.expects(:deliver_issue_add).twice
+
+    @iip.update!(csv_data: "Subject,Tracker,Priority\ntest default,Defect,Critical\n")
+    post :result, params: build_params(send_emails: 'true')
+  end
+
+  test 'create issue relations if related issue exists' do
+    @iip.update!(csv_data: "Subject,Tracker,Priority,Duplicates\ntest dup,Defect,Critical,#{@issue.id}\n")
+    post :result, params: build_params.tap { |params| params[:fields_map] = params[:fields_map].merge('Duplicates' => 'duplicates') }
+    assert Issue.find_by(subject: "test dup").relations.detect { |rel| rel.issue_to_id == @issue.id && rel.relation_type == "duplicates" }
+  end
+
+  test 'not create issue relations if related issue exists' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Priority,Duplicates\n4423,test dup,Defect,Critical,#{@issue.id}\n")
+    other_issue = Issue.create!(@issue.slice(:tracker, :project, :status, :priority, :author).merge(id: 4423, subject: 'test dup'))
+    IssueRelation.create!(issue_from: other_issue, issue_to: @issue, relation_type: 'duplicates')
+    assert IssueRelation.count == 1
+    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map] = params[:fields_map].merge('Duplicates' => 'duplicates') }
+    assert IssueRelation.count == 1
+  end
+
+  test 'custom field can be used as a unique attr' do
+    @iip.update!(csv_data: "Subject,Priority,Tracker,Affected versions\ntest unique,Critical,Defect,0.0.1\n")
+    version = @project.versions.create!(name: '0.0.1')
+    @issue.reload.custom_field_values
+    @issue.custom_value_for(CustomField.find_by(name: 'Affected versions')).update!(value: version)
+    post :result, params: build_params(update_issue: true, unique_field: 'Affected versions')
+    assert @issue.reload.subject == 'test unique'
+  end
+
+  # errors
+
+  test 'No import is currently in progress' do
+    @iip.destroy
+    post :result, params: { project_id: @project.id }
+    assert flash[:error].include?('No import is currently in progress')
+  end
+
+  test 'another import started' do
+    post :result, params: build_params(import_timestamp: @iip.created.strftime("%Y-%m-%d %H:%M:%S").next)
+    assert flash[:error].include?('You seem to have started another import since starting this one. This import cannot be completed')
+  end
+
+  test 'update existing issues but unique field is empty' do
+    post :result, params: build_params(update_issue: 'true', unique_field: nil)
+    assert flash[:error].include?('Unique field must be specified because Update existing issues is on')
+  end
+
+  test 'parent issue field is selected but unique field is not selected' do
+    post :result, params: build_params(unique_field: nil).tap { |params| params[:fields_map] = params[:fields_map].merge('Watchers' => 'parent_issue') }
+    assert flash[:error].include?('Unique field must be specified because the column Parent task needs to refer to other tasks')
+  end
+
+  test 'related issue field is selected but unique field is not selected' do
+    post :result, params: build_params(unique_field: nil).tap { |params| params[:fields_map] = params[:fields_map].merge('Watchers' => 'duplicates') }
+    assert flash[:error].include?('Unique field must be specified because the column Is duplicate of needs to refer to other tasks')
+  end
+
+  test 'check "Import using issue ids" but id field is not selected' do
+    post :result, params: build_params(use_issue_id: 'true').tap { |params| params[:fields_map].delete('#') }
+    assert flash[:error].include?('You must specify a column mapping for id when importing using provided issue ids.')
+  end
+
+  test 'date format is invalid' do
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority,StartDate\nHi,Defect,New,Critical,INVALID_START_DATE\n")
+    post :result, params: build_params.tap { |params| params[:fields_map]['StartDate'] = 'start_date' }
+    assert Issue.count == 1
+    assert response.body.include?('Warning: When adding issue 1 below, INVALID_START_DATE is not valid value.')
+  end
+
+  test 'the issue id is already taken' do
+    @issue.update!(id: 4423)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n4423,Hi,Defect,New,Critical\n")
+    post :result, params: build_params(use_issue_id: 'true')
+    assert Issue.count == 1
+    assert response.body.include?('This issue id has already been taken.')
+    assert response.body.include?('Warning: The following data-validation errors occurred on issue 1 in the list below')
+  end
+
+  test 'issue validation failed' do
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority,StartDate,DueDate\nHi,Defect,New,Critical,2019-07-02,2019-07-01\n")
+    post :result, params: build_params.tap { |params|
+      params[:fields_map]['StartDate'] = 'start_date'
+      params[:fields_map]['DueDate'] = 'due_date'
+    }
+    assert Issue.count == 1
+    assert response.body.include?('Error: due_date must be greater than start date')
+  end
+
+  test 'try to update issue, but unique attr not found' do
+    @iip.update!(csv_data: "Subject,Priority\ntest unique,Critical\n")
+    post :result, params: build_params(update_issue: true, unique_field: 'Subject')
+    assert response.body.include?('Warning: Could not update issue 1 below, no match for the value test unique were found')
+  end
+
+  # match action
+  test 'File not attached' do
+    post :match, params: build_match_params
+    assert flash[:error] == 'CSV file is blank.'
+  end
+
+  test 'No data line' do
+    post :match, params: build_match_params(file: create_csv_file(''))
+    assert flash[:error].include?('No data line in your CSV, check the encoding of the file')
+  end
+
+  test 'Mulformed CSV' do
+    file = create_csv_file(<<-CSV.strip_heredoc)
+    Unclosed,quoted,field
+    "unclosed,quoted,field
+    CSV
+    post :match, params: build_match_params(file: file)
+    assert flash[:error].include?('Unclosed quoted field in line')
+  end
+
+  test 'Column header missing' do
+    file = create_csv_file("one\ntwo,three?\n")
+    post :match, params: build_match_params(file: file)
+    assert flash[:error].include?('Column header missing')
+  end
+
+  test 'attributes mapped' do
+    file = create_csv_file(<<-CSV.strip_heredoc)
+    Subject
+    hi
+    CSV
+    post :match, params: build_match_params(file: file)
+    assert_response :success
+    assert flash[:error].nil?
+  end
+
   protected
 
   def build_params(opts={})
@@ -148,7 +356,11 @@ class ImporterControllerTest < ActionController::TestCase
       }
     )
   end
-  
+
+  def build_match_params(opts = {})
+    opts.reverse_merge(encoding: 'U', splitter: ',', wrapper: '"', project_id: @project.id)
+  end
+
   def issue_has_all_these_multival_versions?(issue, version_names)
     find_version_ids(version_names).all? do |version_to_find|
       versions_for(issue).include?(version_to_find)
@@ -307,5 +519,12 @@ class ImporterControllerTest < ActionController::TestCase
 
   def get_csv(filename)
     File.read(File.expand_path("../../samples/#{filename}.csv", __FILE__))
+  end
+
+  def create_csv_file(content)
+    file = Tempfile.new(['', '.csv'])
+    file.write(content)
+    file.flush
+    Rack::Test::UploadedFile.new(file, 'text/csv')
   end
 end
