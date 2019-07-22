@@ -8,12 +8,12 @@ workflows:
   test:
     jobs:
       - redmine/download:
-          name: 'redmine34-download'
-          redmine_version: '3.4.11'
+          name: 'redmine40-download'
+          redmine_version: '4.0.4'
       - redmine/test:
-          name: 'redmine34-test'
+          name: 'redmine40-test'
           before-setup:
             - run: touch plugins/redmine_importer/Gemfile # キャッシュ作成のため
             - redmine/generate_database_yml-pg
-          executor: redmine/ruby-24-pg
-          requires: [redmine34-download]
+          executor: redmine/ruby-pg
+          requires: [redmine40-download]
