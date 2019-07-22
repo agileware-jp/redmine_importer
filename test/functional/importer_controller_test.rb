@@ -22,7 +22,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle multiple values for versions' do
     assert issue_has_none_of_these_multival_versions?(@issue,
                                                       ['Admin', '2013-09-25'])
-    post :result, build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true')
     assert_response :success
     @issue.reload
     assert issue_has_all_these_multival_versions?(@issue, ['Admin', '2013-09-25'])
@@ -30,7 +30,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should handle multiple values' do
     assert issue_has_none_of_these_multifield_vals?(@issue, ['tag1', 'tag2'])
-    post :result, build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true')
     assert_response :success
     @issue.reload
     assert issue_has_all_these_multifield_vals?(@issue, ['tag1', 'tag2'])
@@ -38,7 +38,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should handle single-value fields' do
     assert_equal 'foobar', @issue.subject
-    post :result, build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true')
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
@@ -47,7 +47,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should create issue if none exists' do
     Issue.delete_all
     assert_equal 0, Issue.count
-    post :result, build_params
+    post :result, params: build_params
     assert_response :success
     assert_equal 1, Issue.count
     issue = Issue.first
@@ -58,7 +58,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal 'foobar', @issue.subject
     Mailer.expects(:deliver_issue_edit)
 
-    post :result, build_params(update_issue: 'true', send_emails: 'true')
+    post :result, params: build_params(update_issue: 'true', send_emails: 'true')
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
@@ -68,7 +68,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal 'foobar', @issue.subject
     Mailer.expects(:deliver_issue_edit).never
 
-    post :result, build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true')
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
@@ -76,7 +76,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should add watchers' do
     assert issue_has_none_of_these_watchers?(@issue, [@user])
-    post :result, build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true')
     assert_response :success
     @issue.reload
     assert issue_has_all_of_these_watchers?(@issue, [@user])
@@ -87,7 +87,7 @@ class ImporterControllerTest < ActionController::TestCase
     @iip.destroy
     @iip = create_iip!('KeyValueList', @user, @project)
     assert CustomFieldEnumeration.find_by(name: 'Okinawa').nil?
-    post :result, build_params(add_enumerations: true)
+    post :result, params: build_params(add_enumerations: true)
     assert_response :success
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
@@ -99,7 +99,7 @@ class ImporterControllerTest < ActionController::TestCase
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
     @iip.destroy
     @iip = create_iip!('KeyValueList', @user, @project)
-    post :result, build_params
+    post :result, params: build_params
     assert_response :success
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
@@ -109,7 +109,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle multiple key value list values' do
     @iip.destroy
     @iip = create_iip!('KeyValueListMultiple', @user, @project)
-    post :result, build_params(add_enumerations: true)
+    post :result, params: build_params(add_enumerations: true)
     assert_response :success
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
@@ -120,7 +120,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle multiple key value list values (not add enumeration)' do
     @iip.destroy
     @iip = create_iip!('KeyValueListMultiple', @user, @project)
-    post :result, build_params
+    post :result, params: build_params
     assert_response :success
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
