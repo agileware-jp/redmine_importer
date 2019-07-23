@@ -4,7 +4,7 @@ require 'tempfile'
 MultipleIssuesForUniqueValue = Class.new(Exception)
 NoIssueForUniqueValue = Class.new(Exception)
 
-class Journal < ActiveRecord::Base
+Journal.class_eval do
   def empty?(*args)
     (details.empty? && notes.blank?)
   end
