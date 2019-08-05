@@ -739,8 +739,7 @@ class ImporterController < ApplicationController
       enumeration = custom_field.enumerations.find_by(name: name).try!(:id)
       if enumeration.nil?
         if name.try! { |n| n.size > 1 } && add_enumerations
-          max_position = custom_field.enumerations.pluck(:position).max || 0
-          enumeration = CustomFieldEnumeration.create(custom_field: custom_field, name: name, position: max_position + 1).id
+          enumeration = CustomFieldEnumeration.create(custom_field: custom_field, name: name).id
         else
           @unfound_class = "CustomFieldEnumeration"
           @unfound_key = name
