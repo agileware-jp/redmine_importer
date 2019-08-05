@@ -1,4 +1,5 @@
 "Subject","Tracker","Priority","Area"
 "パンケーキ","Defect","Critical","Tokyo"
 "たこ焼き","Defect","Critical","Osaka"
-"タピオカ","Defect","Critical","Tokyo,Osaka,Okinawa"
+"タピオカ","Defect","Critical","Tokyo,Osaka"
+"サーターアンダギー","Defect","Critical","Tokyo,Okinawa"
