@@ -16,7 +16,6 @@ de:
     label_importer_send_emails: "Schicke Benachrichtiungs-E-Mails"
     label_importer_add_categories: "Kategorien automatisch hinzufügen" 
     label_importer_add_versions: "Ziel-Versionen automatisch hinzufügen" 
-    label_importer_add_enumerations: "Auto-add Key/value"
     label_update_issue: "Aktualisiere vorhandene Tickets"
     label_journal_field: "Spalte als Notiz auswählen:" 
     label_unique_field: "Wähle ID-Spalte aus (wird fü das Updaten von bestehenden Tickets verwendet bzw. für Relationen):" 

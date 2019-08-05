@@ -16,7 +16,6 @@ pt-BR:
   label_importer_send_emails: "Enviar emails de notificação"
   label_importer_add_categories: "Adicionar categorias automaticamente"
   label_importer_add_versions: "Adicionar versões automaticamente"
-  label_importer_add_enumerations: "Auto-add Key/value"
   label_update_issue: "Atualizar tarefas existentes"
   label_journal_field: "Selecione coluna para usar como nota:"
   label_unique_field: "Selecione coluna de valor único (obrigatório para atualiza tarefas existentes ou importar relacionamentos):"

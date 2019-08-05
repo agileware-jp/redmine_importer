@@ -82,20 +82,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert issue_has_all_of_these_watchers?(@issue, [@user])
   end
 
-  test 'should handle key value list value (add enumeration)' do
-    IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
-    @iip.destroy
-    @iip = create_iip!('KeyValueList', @user, @project)
-    assert CustomFieldEnumeration.find_by(name: 'Okinawa').nil?
-    post :result, params: build_params(add_enumerations: true)
-    assert_response :success
-    assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
-    assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
-    assert keyval_vals_for(Issue.find_by!(subject: 'サーターアンダギー')) == ['Okinawa']
-    assert CustomFieldEnumeration.find_by(name: 'Okinawa')
-  end
-
-  test 'should handle key value list value (not add enumeration)' do
+  test 'should handle key value list value' do
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
     @iip.destroy
     @iip = create_iip!('KeyValueList', @user, @project)
@@ -109,22 +96,13 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle multiple key value list values' do
     @iip.destroy
     @iip = create_iip!('KeyValueListMultiple', @user, @project)
-    post :result, params: build_params(add_enumerations: true)
-    assert_response :success
-    assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
-    assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
-    issue = Issue.find_by!(subject: 'タピオカ')
-    assert ['Tokyo', 'Osaka', 'Okinawa'].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) }
-  end
-
-  test 'should handle multiple key value list values (not add enumeration)' do
-    @iip.destroy
-    @iip = create_iip!('KeyValueListMultiple', @user, @project)
     post :result, params: build_params
     assert_response :success
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
-    assert Issue.find_by(subject: 'タピオカ').nil?
+    issue = Issue.find_by!(subject: 'タピオカ')
+    assert ['Tokyo', 'Osaka'].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) }
+    assert Issue.find_by(subject: 'サーターアンダギー').nil?
   end
 
   protected

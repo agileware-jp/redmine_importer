@@ -16,7 +16,6 @@ ru:
   label_importer_send_emails: "Уведомить участников по e-mail"
   label_importer_add_categories: "Создать несуществующие категории"
   label_importer_add_versions: "Создать несуществующие версии"
-  label_importer_add_enumerations: "Auto-add Key/value"
   label_update_issue: "Обновить существующие задачи при совпадении"
   label_journal_field: "Выберите колонку используемую как описание:"
   label_unique_field: "Выберите колонку с уникальными значениями (необходимо для обновления существующих задач или импорта их отношений):"

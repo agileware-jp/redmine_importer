@@ -99,7 +99,6 @@ class ImporterController < ApplicationController
     send_emails = params[:send_emails]
     add_categories = params[:add_categories]
     add_versions = params[:add_versions]
-    add_enumerations = params[:add_enumerations]
     use_issue_id = params[:use_issue_id].present? ? true : false
     ignore_non_exist = params[:ignore_non_exist]
 
@@ -233,7 +232,7 @@ class ImporterController < ApplicationController
 
         assign_issue_attrs(issue, category, fixed_version_id, assigned_to, status, row, priority, tracker)
         handle_parent_issues(issue, row, ignore_non_exist, unique_attr)
-        handle_custom_fields(add_versions, add_enumerations, issue, project, row)
+        handle_custom_fields(add_versions, issue, project, row)
         handle_watchers(issue, row, watchers)
       rescue RowFailed
         next
@@ -509,12 +508,12 @@ class ImporterController < ApplicationController
     raise RowFailed if watcher_failed_count > 0
   end
 
-  def handle_custom_fields(add_versions, add_enumerations, issue, project, row)
+  def handle_custom_fields(add_versions, issue, project, row)
     custom_failed_count = 0
     issue.custom_field_values = issue.available_custom_fields.inject({}) do |h, cf|
       value = row[@attrs_map[cf.name]]
       if cf.multiple
-        h[cf.id] = process_multivalue_custom_field(project, add_versions, add_enumerations, issue, cf, value)
+        h[cf.id] = process_multivalue_custom_field(project, add_versions, issue, cf, value)
       else
         begin
           if value.present?
@@ -528,7 +527,7 @@ class ImporterController < ApplicationController
                     when 'bool'
                       convert_to_0_or_1(value)
                     when 'enumeration'
-                      enumeration_id_for_name!(cf, value, add_enumerations).to_s
+                      enumeration_id_for_name!(cf, value).to_s
                     else
                       value
                     end
@@ -734,24 +733,20 @@ class ImporterController < ApplicationController
     @version_id_by_name[name]
   end
 
-  def enumeration_id_for_name!(custom_field, name, add_enumerations)
+  def enumeration_id_for_name!(custom_field, name)
     unless @enumeration_id_by_name.key?(name)
       enumeration = custom_field.enumerations.find_by(name: name).try!(:id)
       if enumeration.nil?
-        if name.try! { |n| n.size > 1 } && add_enumerations
-          enumeration = CustomFieldEnumeration.create(custom_field: custom_field, name: name).id
-        else
-          @unfound_class = "CustomFieldEnumeration"
-          @unfound_key = name
-          raise ActiveRecord::RecordNotFound, "No enumeration named #{name}"
-        end
+        @unfound_class = "CustomFieldEnumeration"
+        @unfound_key = name
+        raise ActiveRecord::RecordNotFound, "No enumeration named #{name}"
       end
       @enumeration_id_by_name[name] = enumeration
     end
     @enumeration_id_by_name[name]
   end
 
-  def process_multivalue_custom_field(project, add_versions, add_enumerations, issue, custom_field, csv_val)
+  def process_multivalue_custom_field(project, add_versions, issue, custom_field, csv_val)
     return [] if csv_val.blank?
 
     csv_val.split(',').map(&:strip).map do |val|
@@ -759,7 +754,7 @@ class ImporterController < ApplicationController
         version = version_id_for_name!(project, val, add_versions)
         version
       elsif custom_field.field_format == 'enumeration'
-        enumeration_id_for_name!(custom_field, val, add_enumerations)
+        enumeration_id_for_name!(custom_field, val)
       else
         val
       end
