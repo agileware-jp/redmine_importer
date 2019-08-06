@@ -33,7 +33,6 @@ zh:
   option_ignore: "忽略"
   
   button_upload: "上传文件"
-  button_submit: "提交"
   button_save_rules_and_submit: "存储匹配规则后提交"
 
   text_rmi_specify_unique_field_for_update: "更新现有问题时，必须填写必填字段内容！"

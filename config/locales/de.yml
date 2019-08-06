@@ -32,7 +32,6 @@ de:
     option_ignore: "Ignorieren"
     
     button_upload: "Datei hochladen"
-    button_submit: "Abschicken"
     button_save_rules_and_submit: "Abschicken und Abgleich-Regel speichern"
 
     text_rmi_specify_unique_field_for_update: "Ein eindeutiges Feld muss definiert sein, da die Einstellung für das Update von bestehenden Tickets gesetzt ist."
