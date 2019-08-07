@@ -45,6 +45,7 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should create issue if none exists' do
+    Mailer.expects(:deliver_issue_add).never
     Issue.delete_all
     assert_equal 0, Issue.count
     post :result, params: build_params
@@ -54,7 +55,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal 'barfooz', issue.subject
   end
 
-  test 'should send email when Send email notifications checkbox is checked' do
+  test 'should send email when Send email notifications checkbox is checked and issue updated' do
     assert_equal 'foobar', @issue.subject
     Mailer.expects(:deliver_issue_edit)
 
@@ -62,6 +63,16 @@ class ImporterControllerTest < ActionController::TestCase
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
+  end
+
+  test 'should send email when Send email notifications checkbox is checked and issue added' do
+    assert_equal 'foobar', @issue.subject
+    Mailer.expects(:deliver_issue_add)
+
+    assert_equal 0, Issue.where(subject: 'barfooz').count
+    post :result, params: build_params(send_emails: 'true')
+    assert_response :success
+    assert_equal 1, Issue.where(subject: 'barfooz').count
   end
 
   test 'should NOT send email when Send email notifications checkbox is unchecked' do
@@ -83,6 +94,7 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should handle key value list value' do
+    Mailer.expects(:deliver_issue_add).never
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
     @iip.destroy
     @iip = create_iip!('KeyValueList', @user, @project)
@@ -94,6 +106,7 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should handle multiple key value list values' do
+    Mailer.expects(:deliver_issue_add).never
     @iip.destroy
     @iip = create_iip!('KeyValueListMultiple', @user, @project)
     post :result, params: build_params

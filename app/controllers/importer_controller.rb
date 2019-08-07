@@ -162,6 +162,7 @@ class ImporterController < ApplicationController
         end
 
         issue = Issue.new
+        issue.notify = false
 
         if use_issue_id
           issue.id = fetch("id", row)
