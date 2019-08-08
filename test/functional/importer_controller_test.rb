@@ -118,6 +118,24 @@ class ImporterControllerTest < ActionController::TestCase
     assert Issue.find_by(subject: 'サーターアンダギー').nil?
   end
 
+  test 'should error when assigned_to is missing' do
+    @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
+    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
+    assert_response :success
+    assert response.body.include?('Warning')
+    @issue.reload
+    assert_equal 'foobar', @issue.subject
+  end
+
+  test 'should not error when assigned_to is missing but use_anonymous is true' do
+    @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
+    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
+    assert_response :success
+    assert !response.body.include?('Warning')
+    @issue.reload
+    assert_equal 'barfooz', @issue.subject
+  end
+
   protected
 
   def build_params(opts={})
