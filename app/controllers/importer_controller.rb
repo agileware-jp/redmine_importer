@@ -196,6 +196,7 @@ class ImporterController < ApplicationController
 
         if fetch("assigned_to", row).present?
           assigned_to = user_for_login!(fetch("assigned_to", row))
+          assigned_to = nil if assigned_to == User.anonymous
         else
           assigned_to = nil
         end
