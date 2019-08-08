@@ -117,9 +117,9 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should error when assigned_to is missing' do
-    @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
+    @iip.update_attribute(:csv_data, "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
+    post :result, build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
     assert_response :success
     assert response.body.include?('Warning')
     @issue.reload
@@ -132,9 +132,9 @@ class ImporterControllerTest < ActionController::TestCase
     @tracker.custom_fields << assigned_by_field
     @issue.reload
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
-    @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
+    @iip.update_attribute(:csv_data, "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
+    post :result, build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
     assert_response :success
     assert response.body.include?('Warning')
     @issue.reload
@@ -143,9 +143,9 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should not error when assigned_to is missing but use_anonymous is true' do
-    @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
+    @iip.update_attribute(:csv_data, "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
+    post :result, build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -158,9 +158,9 @@ class ImporterControllerTest < ActionController::TestCase
     @tracker.custom_fields << assigned_by_field
     @issue.reload
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
-    @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
+    @iip.update_attribute(:csv_data, "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
+    post :result, build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
