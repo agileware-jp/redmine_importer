@@ -521,7 +521,8 @@ class ImporterController < ApplicationController
           if value.present?
             value = case cf.field_format
                     when 'user'
-                      user_id_for_login!(value).to_s
+                      user = user_id_for_login!(value)
+                      user == User.anonymous.id ? nil : user.to_s
                     when 'version'
                       version_id_for_name!(project, value, add_versions).to_s
                     when 'date'
@@ -757,6 +758,9 @@ class ImporterController < ApplicationController
         version
       elsif custom_field.field_format == 'enumeration'
         enumeration_id_for_name!(custom_field, val)
+      elsif custom_field.field_format == 'user'
+        user = user_id_for_login!(val)
+        user == User.anonymous.id ? nil : user.to_s
       else
         val
       end
