@@ -231,7 +231,6 @@ class ImporterController < ApplicationController
         project ||= Project.find_by_id(issue.project_id)
 
         update_project_issues_stat(project)
-
         assign_issue_attrs(issue, category, fixed_version_id, assigned_to, status, row, priority, tracker)
         handle_parent_issues(issue, row, ignore_non_exist, unique_attr)
         handle_custom_fields(add_versions, issue, project, row)
@@ -431,6 +430,7 @@ class ImporterController < ApplicationController
     end
 
     issue.assigned_to_id = assigned_to.try(:id)
+    issue.assigned_to = nil unless issue.assigned_to.in?(issue.assignable_users)
     issue.fixed_version_id = fixed_version_id
     issue.done_ratio = fetch("done_ratio", row)
     issue.estimated_hours = fetch("estimated_hours", row)
