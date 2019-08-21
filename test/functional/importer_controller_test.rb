@@ -127,7 +127,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal @user, @issue.assigned_to
   end
 
-  test 'should error when assigned_to user is not assignable' do
+  test 'should unset assigned_to when assigned_to user is not assignable' do
     User.create!(login: 'john', firstname: 'John', lastname: 'Doe', mail: 'john.doe@example.com')
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,john\n")
     post :result, build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
