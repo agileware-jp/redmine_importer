@@ -522,7 +522,9 @@ class ImporterController < ApplicationController
             value = case cf.field_format
                     when 'user'
                       user = user_id_for_login!(value)
-                      user == User.anonymous.id ? nil : user.to_s
+                      if user.in?(cf.format.possible_values_records(cf, issue).map(&:id))
+                        user == User.anonymous.id ? nil : user.to_s
+                      end
                     when 'version'
                       version_id_for_name!(project, value, add_versions).to_s
                     when 'date'
@@ -760,7 +762,9 @@ class ImporterController < ApplicationController
         enumeration_id_for_name!(custom_field, val)
       elsif custom_field.field_format == 'user'
         user = user_id_for_login!(val)
-        user == User.anonymous.id ? nil : user.to_s
+        if user.in?(custom_field.format.possible_values_records(custom_field, issue).map(&:id))
+          user == User.anonymous.id ? nil : user.to_s
+        end
       else
         val
       end
