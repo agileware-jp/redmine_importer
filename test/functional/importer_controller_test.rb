@@ -182,6 +182,22 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal '', @issue.custom_value_for(assigned_by_field).value
   end
 
+  test 'should not error when user type CF value is not listed in possible values' do
+    User.create!(login: 'john', firstname: 'John', lastname: 'Doe', mail: 'john.doe@example.com')
+    assigned_by_field = create_multivalue_field!('assigned_by', 'user', @issue.project)
+    @tracker.custom_fields << assigned_by_field
+    @issue.reload
+    @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
+    @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,john\n")
+    @issue.update!(assigned_to: @user)
+    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
+    assert_response :success
+    assert !response.body.include?('Warning')
+    @issue.reload
+    assert_equal 'barfooz', @issue.subject
+    assert_equal '', @issue.custom_value_for(assigned_by_field).value
+  end
+
   protected
 
   def build_params(opts={})
