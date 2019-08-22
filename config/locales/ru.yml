@@ -32,7 +32,6 @@ ru:
   option_ignore: "Игнорировать"
 
   button_upload: "Загрузить файл"
-  button_submit: "Импортировать"
   button_save_rules_and_submit: "Save match rules and submit"
 
   text_rmi_specify_unique_field_for_update: "Колонка с уникальными значениями должна быть определена, так как включен режим обновления существующих задач включен"

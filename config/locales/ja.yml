@@ -34,7 +34,6 @@ ja:
   option_ignore: "無視"
 
   button_upload: "ファイルをアップロード"
-  button_submit: "確認"
   button_save_rules_and_submit: "対応ルールを保存して確認"
 
   text_rmi_specify_unique_field_for_update: "存在するチケットを更新する場合、ユニークフィールドを選択する必要があります。"

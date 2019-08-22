@@ -34,7 +34,6 @@ en:
   option_ignore: "Ignore"
 
   button_upload: "Upload File"
-  button_submit: "Submit"
   button_save_rules_and_submit: "Save match rules and submit"
 
   text_rmi_specify_unique_field_for_update: "Unique field must be specified because Update existing issues is on"
