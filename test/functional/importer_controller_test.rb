@@ -196,6 +196,27 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal '', @issue.custom_value_for(assigned_by_field).value
   end
 
+  test 'should reset pk sequence' do
+    return unless ActiveRecord::Base.connection.respond_to?(:set_pk_sequence!)
+    return unless ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
+
+    ActiveRecord::Base.connection.set_pk_sequence!('issues', 4422)
+
+    @iip.update_attribute(:csv_data, "#,Subject,Tracker,Priority\n4423,test,Defect,Critical\n")
+    post :result, build_params(use_issue_id: '1')
+    assert_response :success
+    assert !response.body.include?('Warning')
+
+    issue = Issue.new
+    issue.project = @project
+    issue.subject = 'foobar'
+    issue.priority = IssuePriority.find_by!(name: 'Critical')
+    issue.tracker = @project.trackers.first
+    issue.author = @user
+    issue.status = IssueStatus.find_by!(name: 'New')
+    issue.save!
+  end
+
   protected
 
   def build_params(opts={})
