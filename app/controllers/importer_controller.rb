@@ -330,6 +330,10 @@ class ImporterController < ApplicationController
 
     # Garbage prevention: clean up iips older than 3 days
     ImportInProgress.where("created < ?", Time.new - 3*24*60*60).delete_all
+
+    if use_issue_id && ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
+      ActiveRecord::Base.connection.reset_pk_sequence!('issues')
+    end
   end
 
   def translate_unique_attr(issue, unique_field, unique_attr, unique_attr_checked)
