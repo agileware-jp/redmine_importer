@@ -332,7 +332,7 @@ class ImporterController < ApplicationController
     ImportInProgress.delete_all(["created < ?",Time.new - 3*24*60*60])
 
     if use_issue_id && ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
-      ActiveRecord::Base.connection.reset_pk_sequence!('issues')
+      ActiveRecord::Base.connection.reset_pk_sequence!(Issue.table_name)
     end
   end
 
