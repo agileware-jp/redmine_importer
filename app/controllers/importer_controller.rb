@@ -4,12 +4,6 @@ require 'tempfile'
 MultipleIssuesForUniqueValue = Class.new(Exception)
 NoIssueForUniqueValue = Class.new(Exception)
 
-Journal.class_eval do
-  def empty?(*args)
-    (details.empty? && notes.blank?)
-  end
-end
-
 class ImporterController < ApplicationController
   unloadable
 
@@ -270,7 +264,7 @@ class ImporterController < ApplicationController
         if send_emails
           if update_issue
             if Setting.notified_events.include?('issue_updated') \
-               && (!issue.current_journal.empty?)
+               && (!(issue.current_journal.details.empty? && issue.current_journal.notes.blank?))
 
               Mailer.deliver_issue_edit(issue.current_journal)
             end
