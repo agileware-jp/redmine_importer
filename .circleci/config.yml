@@ -12,5 +12,5 @@ workflows:
           redmine_version: '4.1.0'
       - redmine/test:
           name: 'redmine41-test'
-          executor: redmine/ruby-pg
+          executor: redmine/ruby-26-pg
           requires: [redmine41-download]
