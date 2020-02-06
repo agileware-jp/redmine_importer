@@ -336,7 +336,7 @@ class ImporterControllerTest < ActionController::TestCase
     iip.csv_data = get_csv(filename)
     #iip.created = DateTime.new(2001,2,3,4,5,6,'+7')
     iip.created = DateTime.now
-    iip.encoding = 'U'
+    iip.encoding = 'UTF-8'
     iip.col_sep = ','
     iip.quote_char = '"'
     iip.save!
