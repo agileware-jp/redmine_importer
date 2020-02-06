@@ -6,8 +6,7 @@ NoIssueForUniqueValue = Class.new(Exception)
 
 class ImporterController < ApplicationController
   unloadable
-  skip_before_action :verify_authenticity_token
-  
+
   before_action :find_project
 
   ISSUE_ATTRS = [:id, :subject, :assigned_to, :fixed_version,

@@ -13,13 +13,13 @@ class ImportInProgress < ActiveRecord::Base
     self.csv_data = self.csv_data
     # 入力文字コード
     encode = case self.encoding
-             when "UTF-8"
+             when "U"
                "-W"
-             when "EUC-JP"
+             when "EUC"
                "-E"
-             when "SJIS"
+             when "S"
                "-S"
-             when "None"
+             when "N"
                ""
              else
                ""
