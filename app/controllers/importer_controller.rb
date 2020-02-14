@@ -140,7 +140,7 @@ class ImporterController < ApplicationController
 
 
     csv_opt = {:headers=>true,
-               :encoding=>iip.encoding,
+               :encoding=>'UTF-8',
                :quote_char=>iip.quote_char,
                :col_sep=>iip.col_sep}
     CSV.new(iip.csv_data, csv_opt).each do |row|
