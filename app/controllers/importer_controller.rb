@@ -511,6 +511,8 @@ class ImporterController < ApplicationController
   def handle_custom_fields(add_versions, issue, project, row)
     custom_failed_count = 0
     issue.custom_field_values = issue.available_custom_fields.inject({}) do |h, cf|
+      next h unless @attrs_map.has_key?(cf.name) # this cf is absent or ignored.
+
       value = row[@attrs_map[cf.name]]
       if cf.multiple
         h[cf.id] = process_multivalue_custom_field(project, add_versions, issue, cf, value)
