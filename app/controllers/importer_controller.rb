@@ -160,7 +160,7 @@ class ImporterController < ApplicationController
 
         tracker = Tracker.find_by_name(fetch('tracker', row))
         status = IssueStatus.find_by_name(fetch('status', row))
-        author = if @attrs_map['author']
+        author = if @attrs_map.key?('author') && @attrs_map['author']
                    user_for_login!(fetch('author', row))
                  else
                    User.current
@@ -391,16 +391,26 @@ class ImporterController < ApplicationController
 
   def assign_issue_attrs(issue, category, fixed_version_id, assigned_to, status, row, priority, tracker)
     # required attributes
-    issue.status_id = !status.nil? ? status.id : issue.status_id
-    issue.priority_id = !priority.nil? ? priority.id : issue.priority_id
-    issue.subject = fetch('subject', row) || issue.subject
-    issue.tracker_id = tracker.present? ? tracker.id : issue.tracker_id
+    if assignable?(:status)
+      issue.status_id = !status.nil? ? status.id : issue.status_id
+    end
+    if assignable?(:priority)
+      issue.priority_id = !priority.nil? ? priority.id : issue.priority_id
+    end
+    if assignable?(:subject)
+      issue.subject = fetch('subject', row) || issue.subject
+    end
+    if assignable?(:tracker)
+      issue.tracker_id = tracker.present? ? tracker.id : issue.tracker_id
+    end
 
     # optional attributes
-    issue.description = fetch('description', row)
-    issue.category_id = category.try(:id)
+    issue.description = fetch('description', row) if assignable?(:description)
+    issue.category_id = category.try(:id) if assignable?(:category)
 
     %w[start_date due_date].each do |date_field_name|
+      next unless assignable?(date_field_name)
+
       date_field_value = fetch(date_field_name, row)
 
       if date_field_value.present?
@@ -415,15 +425,31 @@ class ImporterController < ApplicationController
       end
     end
 
-    issue.assigned_to_id = assigned_to.try(:id)
-    issue.assigned_to = nil unless issue.assigned_to.in?(issue.assignable_users)
-    issue.fixed_version_id = fixed_version_id
-    issue.done_ratio = fetch('done_ratio', row)
-    issue.estimated_hours = fetch('estimated_hours', row)
-    issue.is_private = (convert_to_boolean(fetch('is_private', row)) || false)
+    if assignable?(:assigned_to)
+      issue.assigned_to_id = assigned_to.try(:id)
+      unless issue.assigned_to.in?(issue.assignable_users)
+        issue.assigned_to = nil
+      end
+    end
+    issue.fixed_version_id = fixed_version_id if assignable?(:fixed_version)
+    issue.done_ratio = fetch('done_ratio', row) if assignable?(:done_ratio)
+    if assignable?(:estimated_hours)
+      issue.estimated_hours = fetch('estimated_hours', row)
+    end
+    if assignable?(:is_private)
+      issue.is_private = (convert_to_boolean(fetch('is_private', row)) || false)
+    end
+  end
+
+  def assignable?(field)
+    raise unless ISSUE_ATTRS.include?(field.to_sym)
+
+    @attrs_map.key?(field.to_s)
   end
 
   def handle_parent_issues(issue, row, ignore_non_exist, unique_attr)
+    return unless assignable?(:parent_issue)
+
     parent_value = fetch('parent_issue', row)
     issue.parent_issue_id = if parent_value.present?
                               issue_for_unique_attr(unique_attr, parent_value, row).id
@@ -466,6 +492,8 @@ class ImporterController < ApplicationController
   end
 
   def handle_watchers(issue, row, watchers)
+    return unless assignable?(:watchers)
+
     watcher_failed_count = 0
     if watchers
       addable_watcher_users = issue.addable_watcher_users

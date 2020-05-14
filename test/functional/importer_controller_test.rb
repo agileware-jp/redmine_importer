@@ -6,6 +6,7 @@ class ImporterControllerTest < ActionController::TestCase
   include ActiveJob::TestHelper
 
   def setup
+    ActionController::Base.allow_forgery_protection = false
     @project = Project.create! name: 'foo', identifier: 'importer_controller_test'
     @tracker = Tracker.new(name: 'Defect')
     @tracker.default_status = IssueStatus.find_or_create_by!(name: 'New')
@@ -44,6 +45,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
+    assert_equal @user.today, @issue.start_date
   end
 
   test 'should create issue if none exists' do
@@ -353,6 +355,7 @@ class ImporterControllerTest < ActionController::TestCase
     issue.tracker = project.trackers.first
     issue.author = author
     issue.status = IssueStatus.find_or_create_by!(name: 'New')
+    issue.start_date = author.today
     issue.save!
     issue
   end
