@@ -1,14 +1,16 @@
+# frozen_string_literal: true
+
 require File.expand_path('../../test_helper', __FILE__)
 
 class ImporterControllerTest < ActionController::TestCase
   def setup
-    @project = Project.create! :name => 'foo', :identifier => 'importer_controller_test'
-    @tracker = Tracker.new(:name => 'Defect')
+    @project = Project.create! name: 'foo', identifier: 'importer_controller_test'
+    @tracker = Tracker.new(name: 'Defect')
     @tracker.default_status = IssueStatus.find_or_create_by!(name: 'New')
     @tracker.save!
     @project.trackers << @tracker
     @project.save!
-    @role = Role.create! :name => 'ADMIN', :permissions => [:import, :view_issues]
+    @role = Role.create! name: 'ADMIN', permissions: %i[import view_issues]
     @user = create_user!(@role, @project)
     @iip = create_iip_for_multivalues!(@user, @project)
     @issue = create_issue!(@project, @user)
@@ -19,19 +21,19 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should handle multiple values for versions' do
     assert issue_has_none_of_these_multival_versions?(@issue,
-                                                      ['Admin', '2013-09-25'])
+                                                      %w[Admin 2013-09-25])
     post :result, build_params(update_issue: 'true')
     assert_response :success
     @issue.reload
-    assert issue_has_all_these_multival_versions?(@issue, ['Admin', '2013-09-25'])
+    assert issue_has_all_these_multival_versions?(@issue, %w[Admin 2013-09-25])
   end
 
   test 'should handle multiple values' do
-    assert issue_has_none_of_these_multifield_vals?(@issue, ['tag1', 'tag2'])
+    assert issue_has_none_of_these_multifield_vals?(@issue, %w[tag1 tag2])
     post :result, build_params(update_issue: 'true')
     assert_response :success
     @issue.reload
-    assert issue_has_all_these_multifield_vals?(@issue, ['tag1', 'tag2'])
+    assert issue_has_all_these_multifield_vals?(@issue, %w[tag1 tag2])
   end
 
   test 'should handle single-value fields' do
@@ -112,7 +114,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
     issue = Issue.find_by!(subject: 'タピオカ')
-    assert ['Tokyo', 'Osaka'].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) }
+    assert %w[Tokyo Osaka].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) }
     assert Issue.find_by(subject: 'サーターアンダギー').nil?
   end
 
@@ -137,7 +139,6 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal 'barfooz', @issue.subject
     assert_nil @issue.assigned_to
   end
-
 
   test 'should error when user type CF value is missing' do
     assigned_by_field = create_multivalue_field!('assigned_by', 'user', @issue.project)
@@ -219,13 +220,13 @@ class ImporterControllerTest < ActionController::TestCase
 
   protected
 
-  def build_params(opts={})
+  def build_params(opts = {})
     @iip.reload
     opts.reverse_merge(
-      :import_timestamp => @iip.created.strftime("%Y-%m-%d %H:%M:%S"),
-      :unique_field => '#',
-      :project_id => @project.id,
-      :fields_map => {
+      import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: '#',
+      project_id: @project.id,
+      fields_map: {
         '#' => 'id',
         'Subject' => 'subject',
         'Tags' => 'Tags',
@@ -238,13 +239,13 @@ class ImporterControllerTest < ActionController::TestCase
       }
     )
   end
-  
+
   def issue_has_all_these_multival_versions?(issue, version_names)
     find_version_ids(version_names).all? do |version_to_find|
       versions_for(issue).include?(version_to_find)
     end
   end
-  
+
   def issue_has_none_of_these_multival_versions?(issue, version_names)
     find_version_ids(version_names).none? do |version_to_find|
       versions_for(issue).include?(version_to_find)
@@ -274,13 +275,13 @@ class ImporterControllerTest < ActionController::TestCase
     value_objs = issue.custom_values.where(custom_field_id: versions_field.id)
     values = value_objs.map(&:value)
   end
-  
+
   def issue_has_all_these_multifield_vals?(issue, vals_to_find)
     vals_to_find.all? do |val_to_find|
       multifield_vals_for(issue).include?(val_to_find)
     end
   end
-  
+
   def issue_has_none_of_these_multifield_vals?(issue, vals_to_find)
     vals_to_find.none? do |val_to_find|
       multifield_vals_for(issue).include?(val_to_find)
@@ -300,23 +301,23 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   def create_user!(role, project)
-    user = User.new :admin => true,
-                    :login => 'bob',
-                    :firstname => 'Bob',
-                    :lastname => 'Loblaw',
-                    :mail => 'bob.loblaw@example.com'
+    user = User.new admin: true,
+                    login: 'bob',
+                    firstname: 'Bob',
+                    lastname: 'Loblaw',
+                    mail: 'bob.loblaw@example.com'
     user.login = 'bob'
-    sponsor = User.new :admin => true,
-                       :firstname => 'A',
-                       :lastname => 'H',
-                       :mail => 'a@example.com'
+    sponsor = User.new admin: true,
+                       firstname: 'A',
+                       lastname: 'H',
+                       mail: 'a@example.com'
     sponsor.login = 'alice'
 
-    membership = user.memberships.build(:project => project)
+    membership = user.memberships.build(project: project)
     membership.roles << role
     membership.principal = user
 
-    membership = sponsor.memberships.build(:project => project)
+    membership = sponsor.memberships.build(project: project)
     membership.roles << role
     membership.principal = sponsor
     sponsor.save!
@@ -328,11 +329,11 @@ class ImporterControllerTest < ActionController::TestCase
     create_iip!('CustomFieldMultiValues', user, project)
   end
 
-  def create_iip!(filename, user, project)
+  def create_iip!(filename, user, _project)
     iip = ImportInProgress.new
     iip.user = user
     iip.csv_data = get_csv(filename)
-    #iip.created = DateTime.new(2001,2,3,4,5,6,'+7')
+    # iip.created = DateTime.new(2001,2,3,4,5,6,'+7')
     iip.created = DateTime.now
     iip.encoding = 'U'
     iip.col_sep = ','
@@ -343,7 +344,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   def create_issue!(project, author)
     issue = Issue.new
-    issue.id = 70385
+    issue.id = 70_385
     issue.project = project
     issue.subject = 'foobar'
     issue.create_priority!(name: 'Critical')
@@ -361,10 +362,10 @@ class ImporterControllerTest < ActionController::TestCase
     multival_field = create_multivalue_field!('Tags',
                                               'list',
                                               issue.project,
-                                              %w(tag1 tag2))
+                                              %w[tag1 tag2])
     keyval_field = create_enumeration_field!('Area',
-                                            issue.project,
-                                            %w(Tokyo Osaka))
+                                             issue.project,
+                                             %w[Tokyo Osaka])
     issue.tracker.custom_fields << versions_field
     issue.tracker.custom_fields << multival_field
     issue.tracker.custom_fields << keyval_field
@@ -372,7 +373,7 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   def create_multivalue_field!(name, format, project, possible_vals = [])
-    field = IssueCustomField.new :name => name, :multiple => true
+    field = IssueCustomField.new name: name, multiple: true
     field.field_format = format
     field.projects << project
     field.possible_values = possible_vals if possible_vals
@@ -381,18 +382,18 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   def create_enumeration_field!(name, project, enumerations)
-    field = IssueCustomField.new :name => name, :multiple => true, :field_format => 'enumeration'
+    field = IssueCustomField.new name: name, multiple: true, field_format: 'enumeration'
     field.projects << project
     field.save!
     enumerations.each.with_index(1) do |name, position|
-      CustomFieldEnumeration.create!(:name => name, :custom_field_id => field.id, :active => true, :position => position)
+      CustomFieldEnumeration.create!(name: name, custom_field_id: field.id, active: true, position: position)
     end
     field
   end
 
   def create_versions!(project)
-    project.versions.create! :name => 'Admin', :status => 'open'
-    project.versions.create! :name => '2013-09-25', :status => 'open'
+    project.versions.create! name: 'Admin', status: 'open'
+    project.versions.create! name: '2013-09-25', status: 'open'
   end
 
   def get_csv(filename)
