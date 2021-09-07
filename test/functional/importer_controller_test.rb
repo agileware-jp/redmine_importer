@@ -16,7 +16,7 @@ class ImporterControllerTest < ActionController::TestCase
     @role = Role.create! name: 'ADMIN', permissions: %i[import view_issues]
     @user = create_user!(@role, @project)
     @iip = create_iip_for_multivalues!(@user, @project)
-    @issue = create_issue!(@project, @user, id: 70_385)
+    @issue = create_issue!(@project, @user, { id: 70_385 })
     create_custom_fields!(@issue)
     create_versions!(@project)
     User.stubs(:current).returns(@user)
@@ -123,7 +123,7 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should handle issue relation' do
-    other_issue = create_issue!(@project, @user, subject: 'other_issue')
+    other_issue = create_issue!(@project, @user, { subject: 'other_issue' })
     @iip.update!(csv_data: "#,Subject,Duplicated issue ID\n#{@issue.id},set other issue relation,#{other_issue.id}\n")
     post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['Duplicated issue ID'] = IssueRelation::TYPE_DUPLICATED }
     assert_response :success
@@ -359,11 +359,11 @@ class ImporterControllerTest < ActionController::TestCase
     iip
   end
 
-  def create_issue!(project, author, id: nil, subject: 'foobar')
+  def create_issue!(project, author, options = {})
     issue = Issue.new
-    issue.id = id
+    issue.id = options[:id]
     issue.project = project
-    issue.subject = subject
+    issue.subject = options[:subject] || 'foobar'
     issue.priority = IssuePriority.find_or_create_by!(name: 'Critical')
     issue.tracker = project.trackers.first
     issue.author = author
