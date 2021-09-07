@@ -16,7 +16,7 @@ class ImporterControllerTest < ActionController::TestCase
     @role = Role.create! name: 'ADMIN', permissions: %i[import view_issues]
     @user = create_user!(@role, @project)
     @iip = create_iip_for_multivalues!(@user, @project)
-    @issue = create_issue!(@project, @user)
+    @issue = create_issue!(@project, @user, id: 70_385)
     create_custom_fields!(@issue)
     create_versions!(@project)
     User.stubs(:current).returns(@user)
@@ -120,6 +120,19 @@ class ImporterControllerTest < ActionController::TestCase
     issue = Issue.find_by!(subject: 'タピオカ')
     assert %w[Tokyo Osaka].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) }
     assert Issue.find_by(subject: 'サーターアンダギー').nil?
+  end
+
+  test 'should handle issue relation' do
+    other_issue = create_issue!(@project, @user, subject: 'other_issue')
+    @iip.update!(csv_data: "#,Subject,Duplicated issue ID\n#{@issue.id},set other issue relation,#{other_issue.id}\n")
+    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['Duplicated issue ID'] = IssueRelation::TYPE_DUPLICATED }
+    assert_response :success
+    @issue.reload
+    assert_equal 'set other issue relation', @issue.subject
+    issue_relation = @issue.relations_to.first!
+    assert_equal other_issue, issue_relation.issue_from
+    assert_equal IssueRelation::TYPE_DUPLICATES, issue_relation.relation_type
+    assert_equal 1, @issue.relations_to.count
   end
 
   test 'should error when assigned_to is missing' do
@@ -346,12 +359,12 @@ class ImporterControllerTest < ActionController::TestCase
     iip
   end
 
-  def create_issue!(project, author)
+  def create_issue!(project, author, id: nil, subject: 'foobar')
     issue = Issue.new
-    issue.id = 70_385
+    issue.id = id
     issue.project = project
-    issue.subject = 'foobar'
-    issue.create_priority!(name: 'Critical')
+    issue.subject = subject
+    issue.priority = IssuePriority.find_or_create_by!(name: 'Critical')
     issue.tracker = project.trackers.first
     issue.author = author
     issue.status = IssueStatus.find_or_create_by!(name: 'New')
