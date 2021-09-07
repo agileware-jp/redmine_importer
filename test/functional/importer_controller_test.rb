@@ -125,7 +125,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle issue relation' do
     other_issue = create_issue!(@project, @user, { subject: 'other_issue' })
     @iip.update!(csv_data: "#,Subject,Duplicated issue ID\n#{@issue.id},set other issue relation,#{other_issue.id}\n")
-    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['Duplicated issue ID'] = IssueRelation::TYPE_DUPLICATED }
+    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['Duplicated issue ID'] = "issue_relation-#{IssueRelation::TYPE_DUPLICATED}" }
     assert_response :success
     @issue.reload
     assert_equal 'set other issue relation', @issue.subject
@@ -138,7 +138,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should error when assigned_to is missing' do
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
+    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'standard_field-assigned_to' }
     assert_response :success
     assert response.body.include?('Warning')
     @issue.reload
@@ -149,7 +149,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should unset assigned_to when assigned_to user is not assignable' do
     User.create!(login: 'john', firstname: 'John', lastname: 'Doe', mail: 'john.doe@example.com')
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,john\n")
-    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
+    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'standard_field-assigned_to' }
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -164,7 +164,7 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
     @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
+    post :result, params: build_params(update_issue: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'standard_field-assigned_by' }
     assert_response :success
     assert response.body.include?('Warning')
     @issue.reload
@@ -175,7 +175,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should not error when assigned_to is missing but use_anonymous is true' do
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'assigned_to' }
+    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_to'] = 'standard_field-assigned_to' }
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -190,7 +190,7 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
     @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
+    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'custom_field-assigned_by' }
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -206,7 +206,7 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
     @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,john\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'assigned_by' }
+    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params| params[:fields_map]['assigned_by'] = 'custom_field-assigned_by' }
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -244,15 +244,15 @@ class ImporterControllerTest < ActionController::TestCase
       unique_field: '#',
       project_id: @project.id,
       fields_map: {
-        '#' => 'id',
-        'Subject' => 'subject',
-        'Tags' => 'Tags',
-        'Affected versions' => 'Affected versions',
-        'Priority' => 'priority',
-        'Tracker' => 'tracker',
-        'Status' => 'status',
-        'Watchers' => 'watchers',
-        'Area' => 'Area'
+        '#' => 'standard_field-id',
+        'Subject' => 'standard_field-subject',
+        'Tags' => 'custom_field-Tags',
+        'Affected versions' => 'custom_field-Affected versions',
+        'Priority' => 'standard_field-priority',
+        'Tracker' => 'standard_field-tracker',
+        'Status' => 'standard_field-status',
+        'Watchers' => 'standard_field-watchers',
+        'Area' => 'custom_field-Area'
       }
     )
   end

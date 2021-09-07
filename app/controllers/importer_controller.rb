@@ -55,13 +55,13 @@ class ImporterController < ApplicationController
     @attrs = []
     ISSUE_ATTRS.each do |attr|
       # @attrs.push([l_has_string?("field_#{attr}".to_sym) ? l("field_#{attr}".to_sym) : attr.to_s.humanize, attr])
-      @attrs.push([l_or_humanize(attr, prefix: 'field_'), attr])
+      @attrs.push([l_or_humanize(attr, prefix: 'field_'), "standard_field-#{attr}"])
     end
     @project.all_issue_custom_fields.each do |cfield|
-      @attrs.push([cfield.name, cfield.name])
+      @attrs.push([cfield.name, "custom_field-#{cfield.name}"])
     end
     IssueRelation::TYPES.each_pair do |rtype, rinfo|
-      @attrs.push([l_or_humanize(rinfo[:name]), rtype])
+      @attrs.push([l_or_humanize(rinfo[:name]), "issue_relation-#{rtype}"])
     end
     @attrs.sort!
   end
@@ -113,12 +113,12 @@ class ImporterController < ApplicationController
     if unique_attr.blank?
       if update_issue
         flash[:error] = l(:text_rmi_specify_unique_field_for_update)
-      elsif @attrs_map['parent_issue'].present?
+      elsif @attrs_map['standard_field-parent_issue'].present?
         flash[:error] = l(:text_rmi_specify_unique_field_for_column,
                           column: l(:field_parent_issue))
-      else IssueRelation::TYPES.each_key.any? { |t| @attrs_map[t].present? }
+      else IssueRelation::TYPES.each_key.any? { |t| @attrs_map["issue_relation-#{t}"].present? }
            IssueRelation::TYPES.each_key do |t|
-             if @attrs_map[t].present?
+             if @attrs_map["issue_relation-#{t}"].present?
                flash[:error] = l(:text_rmi_specify_unique_field_for_column,
                                  column: l("label_#{t}".to_sym))
              end
@@ -128,7 +128,7 @@ class ImporterController < ApplicationController
 
     # validate that the id attribute has been selected
     if use_issue_id
-      if @attrs_map['id'].blank?
+      if @attrs_map['standard_field-id'].blank?
         flash[:error] = 'You must specify a column mapping for id' \
           ' when importing using provided issue ids.'
       end
@@ -142,7 +142,7 @@ class ImporterController < ApplicationController
                 quote_char: iip.quote_char,
                 col_sep: iip.col_sep }
     CSV.new(iip.csv_data, csv_opt).each do |row|
-      project = Project.find_by_name(fetch('project', row))
+      project = Project.find_by_name(fetch('standard_field-project', row))
       project ||= @project
 
       begin
@@ -156,17 +156,17 @@ class ImporterController < ApplicationController
         issue = Issue.new
         issue.notify = false
 
-        issue.id = fetch('id', row) if use_issue_id
+        issue.id = fetch('standard_field-id', row) if use_issue_id
 
-        tracker = Tracker.find_by_name(fetch('tracker', row))
-        status = IssueStatus.find_by_name(fetch('status', row))
-        author = if @attrs_map.key?('author') && @attrs_map['author']
-                   user_for_login!(fetch('author', row))
+        tracker = Tracker.find_by_name(fetch('standard_field-tracker', row))
+        status = IssueStatus.find_by_name(fetch('standard_field-status', row))
+        author = if @attrs_map.key?('standard_field-author') && @attrs_map['standard_field-author']
+                   user_for_login!(fetch('standard_field-author', row))
                  else
                    User.current
                  end
-        priority = Enumeration.find_by_name(fetch('priority', row))
-        category_name = fetch('category', row)
+        priority = Enumeration.find_by_name(fetch('standard_field-priority', row))
+        category_name = fetch('standard_field-category', row)
         category = IssueCategory.find_by_project_id_and_name(project.id,
                                                              category_name)
 
@@ -178,21 +178,21 @@ class ImporterController < ApplicationController
           category.save
         end
 
-        if category.blank? && fetch('category', row).present?
+        if category.blank? && fetch('standard_field-category', row).present?
           @unfound_class = 'Category'
-          @unfound_key = fetch('category', row)
+          @unfound_key = fetch('standard_field-category', row)
           raise ActiveRecord::RecordNotFound
         end
 
-        if fetch('assigned_to', row).present?
-          assigned_to = user_for_login!(fetch('assigned_to', row))
+        if fetch('standard_field-assigned_to', row).present?
+          assigned_to = user_for_login!(fetch('standard_field-assigned_to', row))
           assigned_to = nil if assigned_to == User.anonymous
         else
           assigned_to = nil
         end
 
-        if fetch('fixed_version', row).present?
-          fixed_version_name = fetch('fixed_version', row)
+        if fetch('standard_field-fixed_version', row).present?
+          fixed_version_name = fetch('standard_field-fixed_version', row)
           fixed_version_id = version_id_for_name!(project,
                                                   fixed_version_name,
                                                   add_versions)
@@ -201,7 +201,7 @@ class ImporterController < ApplicationController
           fixed_version_id = nil
         end
 
-        watchers = fetch('watchers', row)
+        watchers = fetch('standard_field-watchers', row)
 
         issue.project_id = !project.nil? ? project.id : @project.id
         issue.tracker_id = !tracker.nil? ? tracker.id : default_tracker
@@ -264,10 +264,10 @@ class ImporterController < ApplicationController
         # Issue relations
         begin
           IssueRelation::TYPES.each_pair do |rtype, _rinfo|
-            next unless row[@attrs_map[rtype]]
+            next unless row[@attrs_map["issue_relation-#{rtype}"]]
 
             other_issue = issue_for_unique_attr(unique_attr,
-                                                row[@attrs_map[rtype]],
+                                                row[@attrs_map["issue_relation-#{rtype}"]],
                                                 row)
             relations = issue.relations.select do |r|
               (r.other_issue(issue).id == other_issue.id) \
@@ -398,20 +398,20 @@ class ImporterController < ApplicationController
       issue.priority_id = !priority.nil? ? priority.id : issue.priority_id
     end
     if assignable?(:subject)
-      issue.subject = fetch('subject', row) || issue.subject
+      issue.subject = fetch('standard_field-subject', row) || issue.subject
     end
     if assignable?(:tracker)
       issue.tracker_id = tracker.present? ? tracker.id : issue.tracker_id
     end
 
     # optional attributes
-    issue.description = fetch('description', row) if assignable?(:description)
+    issue.description = fetch('standard_field-description', row) if assignable?(:description)
     issue.category_id = category.try(:id) if assignable?(:category)
 
     %w[start_date due_date].each do |date_field_name|
       next unless assignable?(date_field_name)
 
-      date_field_value = fetch(date_field_name, row)
+      date_field_value = fetch("standard_field-#{date_field_name}", row)
 
       if date_field_value.present?
         begin
@@ -432,25 +432,25 @@ class ImporterController < ApplicationController
       end
     end
     issue.fixed_version_id = fixed_version_id if assignable?(:fixed_version)
-    issue.done_ratio = fetch('done_ratio', row) if assignable?(:done_ratio)
+    issue.done_ratio = fetch('standard_field-done_ratio', row) if assignable?(:done_ratio)
     if assignable?(:estimated_hours)
-      issue.estimated_hours = fetch('estimated_hours', row)
+      issue.estimated_hours = fetch('standard_field-estimated_hours', row)
     end
     if assignable?(:is_private)
-      issue.is_private = (convert_to_boolean(fetch('is_private', row)) || false)
+      issue.is_private = (convert_to_boolean(fetch('standard_field-is_private', row)) || false)
     end
   end
 
   def assignable?(field)
     raise unless ISSUE_ATTRS.include?(field.to_sym)
 
-    @attrs_map.key?(field.to_s)
+    @attrs_map.key?("standard_field-#{field}")
   end
 
   def handle_parent_issues(issue, row, ignore_non_exist, unique_attr)
     return unless assignable?(:parent_issue)
 
-    parent_value = fetch('parent_issue', row)
+    parent_value = fetch('standard_field-parent_issue', row)
     issue.parent_issue_id = if parent_value.present?
                               issue_for_unique_attr(unique_attr, parent_value, row).id
                             end
@@ -522,9 +522,9 @@ class ImporterController < ApplicationController
   def handle_custom_fields(add_versions, issue, project, row)
     custom_failed_count = 0
     issue.custom_field_values = issue.available_custom_fields.each_with_object({}) do |cf, h|
-      next h unless @attrs_map.key?(cf.name) # this cf is absent or ignored.
+      next h unless @attrs_map.key?("custom_field-#{cf.name}") # this cf is absent or ignored.
 
-      value = row[@attrs_map[cf.name]]
+      value = row[@attrs_map["custom_field-#{cf.name}"]]
       if cf.multiple
         h[cf.id] = process_multivalue_custom_field(project, add_versions, issue, cf, value)
       else
@@ -658,7 +658,7 @@ class ImporterController < ApplicationController
       return @issue_by_unique_attr[attr_value]
     end
 
-    if unique_attr == 'id'
+    if unique_attr == 'standard_field-id'
       issues = [Issue.find_by_id(attr_value)].compact
     else
       # Use IssueQuery class Redmine >= 2.3.0
