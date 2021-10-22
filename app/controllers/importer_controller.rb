@@ -237,6 +237,8 @@ class ImporterController < ApplicationController
         next
       end
 
+      issue.singleton_class.include Concerns::ValidateStatus
+
       begin
         issue_saved = issue.save
       rescue ActiveRecord::RecordNotUnique

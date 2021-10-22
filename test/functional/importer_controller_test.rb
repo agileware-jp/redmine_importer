@@ -249,6 +249,40 @@ class ImporterControllerTest < ActionController::TestCase
     issue.save!
   end
 
+  test "should NOT change an open issue's parent to an closed issue" do
+    closed_status = IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
+    parent = create_issue!(@project, @user, status: closed_status)
+    @iip.update!(csv_data: "#,Parent\n#{@issue.id},#{parent.id}\n")
+    post :result, params: build_params(update_issue: 'true')
+    assert_response :success
+    assert response.body.include?('Error')
+    assert_nil @issue.reload.parent
+  end
+
+  test 'should NOT close an issue having open children' do
+    @child = create_issue!(@project, @user, parent_id: @issue.id)
+    assert @issue.children.include?(@child)
+    assert !@issue.status.is_closed?
+    assert !@child.status.is_closed?
+    IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
+    @iip.update!(csv_data: "#,Status\n#{@issue.id},Closed\n")
+    post :result, params: build_params(update_issue: 'true')
+    assert_response :success
+    assert response.body.include?('Error')
+    assert !@issue.reload.status.is_closed?
+  end
+
+  test 'should NOT reopen an issue having closed parent' do
+    closed_status = IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
+    @issue.parent = create_issue!(@project, @user, status: closed_status)
+    @issue.update!(status: closed_status)
+    @iip.update!(csv_data: "#,Status\n#{@issue.id},New\n")
+    post :result, params: build_params(update_issue: 'true')
+    assert_response :success
+    assert response.body.include?('Error')
+    assert @issue.reload.status.is_closed?
+  end
+
   protected
 
   def build_params(opts = {})
@@ -266,6 +300,7 @@ class ImporterControllerTest < ActionController::TestCase
         'Tracker' => 'standard_field-tracker',
         'Status' => 'standard_field-status',
         'Watchers' => 'standard_field-watchers',
+        'Parent' => 'standard_field-parent_issue',
         'Area' => 'custom_field-Area'
       }
     )
@@ -376,12 +411,13 @@ class ImporterControllerTest < ActionController::TestCase
   def create_issue!(project, author, options = {})
     issue = Issue.new
     issue.id = options[:id]
+    issue.parent_id = options[:parent_id]
     issue.project = project
     issue.subject = options[:subject] || 'foobar'
     issue.priority = IssuePriority.find_or_create_by!(name: 'Critical')
     issue.tracker = project.trackers.first
     issue.author = author
-    issue.status = IssueStatus.find_or_create_by!(name: 'New')
+    issue.status = options[:status] || IssueStatus.find_or_create_by!(name: 'New')
     issue.start_date = author.today
     issue.save!
     issue
