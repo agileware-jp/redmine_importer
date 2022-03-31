@@ -1,4 +1,4 @@
-# encoding: UTF-8
+# frozen_string_literal: true
 
 require 'redmine'
 
@@ -9,7 +9,12 @@ Redmine::Plugin.register :redmine_importer do
   version '1.2.2'
 
   project_module :importer do
-    permission :import, :importer => :index
+    permission :import, importer: :index
   end
-  menu :project_menu, :importer, { :controller => 'importer', :action => 'index' }, :caption => :label_import, :before => :settings, :param => :project_id
+  menu :project_menu,
+       :importer,
+       { controller: 'importer', action: 'index' },
+       caption: :label_import,
+       before: :settings,
+       param: :project_id
 end
