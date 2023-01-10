@@ -1,10 +1,10 @@
 = Redmine Issue Importer
 
-User documentation for this plugin is 
+User documentation for this plugin is
 at https://github.com/leovitch/redmine_importer/wiki.
 
 This plugin is functional now, including in multiprocess environments.
-The plugin has been testes on Redmine 1.1, 1.2.0 and 2.2-stable.
+The plugin has been tested on Redmine 4.1 or higher
 The database is used for intermediate storage.
 
 To install:
