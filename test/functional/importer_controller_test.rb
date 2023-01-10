@@ -139,7 +139,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should error when assigned_to is missing' do
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
-    @issue.update!(assigned_to: @user)
+    @issue.reload.update!(assigned_to: @user)
     post :result, params: build_params(update_issue: 'true').tap { |params|
                             params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
                           }
@@ -182,7 +182,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should not error when assigned_to is missing but use_anonymous is true' do
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
-    @issue.update!(assigned_to: @user)
+    @issue.reload.update!(assigned_to: @user)
     post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params|
                             params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
                           }
@@ -274,8 +274,8 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should NOT reopen an issue having closed parent' do
     closed_status = IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
-    @issue.parent = create_issue!(@project, @user, status: closed_status)
-    @issue.update!(status: closed_status)
+    new_issue = create_issue!(@project, @user, status: closed_status)
+    @issue.reload.update!(status: closed_status, parent_id: new_issue.id)
     @iip.update!(csv_data: "#,Status\n#{@issue.id},New\n")
     post :result, params: build_params(update_issue: 'true')
     assert_response :success
