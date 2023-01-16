@@ -63,10 +63,12 @@ workflows:
   run-tests-workflow:
     jobs:
         - run-tests:
+            name: test on newest versions with PostgreSQL
             database: pg
             ruby_version: '2.7'
             redmine_version: 'latest'
         - run-tests:
+            name: test on oldest versions with MySQL
             database: mysql
             ruby_version: '2.6'
             redmine_version: '4.2.9'
