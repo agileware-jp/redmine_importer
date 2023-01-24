@@ -1,16 +1,74 @@
 version: 2.1
 
 orbs:
-  redmine: agileware-jp/redmine-plugin@0.0.25
+  redmine-plugin: agileware-jp/redmine-plugin@2.3.0
+  plugin-test:
+    commands:
+      run-tests:
+        parameters:
+          plugin:
+            default: ''
+            description: Plugin name. If unspecified it will be the current repository's plugin.
+            type: string
+          redmine_root:
+            default: redmine
+            description: Directory where redmine is installed
+            type: string
+        steps:
+          - run:
+              name: Setup Database
+              command: 'RAILS_ENV=test bundle exec rake db:migrate redmine:plugins:migrate'
+              working_directory: << parameters.redmine_root >>
+          - run:
+              name: Set tested plugin
+              command: |
+                PLUGIN_NAME='<< parameters.plugin >>'
+                if [ -z $PLUGIN_NAME ]; then
+                  PLUGIN_NAME=$CIRCLE_PROJECT_REPONAME
+                fi
 
+                echo $PLUGIN_NAME >> .tested_plugin
+              working_directory: << parameters.redmine_root >>
+          - run:
+              command: >-
+                RAILS_ENV=test bundle exec rake redmine:plugins:test PLUGIN=`cat .tested_plugin`
+              working_directory: << parameters.redmine_root >>
+jobs:
+  run-tests:
+    executor:
+      name: redmine-plugin/ruby-<< parameters.database >>
+      ruby_version: << parameters.ruby_version >>
+    parameters:
+      database:
+        enum:
+          - mysql
+          - pg
+          - mariadb
+          - sqlite3
+        type: enum
+      redmine_version:
+        type: string
+      ruby_version:
+        type: string
+    steps:
+      - checkout
+      - redmine-plugin/download-redmine:
+          version: << parameters.redmine_version >>
+      - redmine-plugin/install-self
+      - redmine-plugin/generate-database_yml
+      - redmine-plugin/bundle-install
+      - redmine-plugin/migrate-without-plugins
+      - plugin-test/run-tests
 workflows:
-  version: 2
-  test:
+  run-tests-workflow:
     jobs:
-      - redmine/download:
-          name: 'redmine41-download'
-          redmine_version: '4.1.0'
-      - redmine/test:
-          name: 'redmine41-test'
-          executor: redmine/ruby-26-pg
-          requires: [redmine41-download]
+        - run-tests:
+            name: test on newest versions with PostgreSQL
+            database: pg
+            ruby_version: '2.7'
+            redmine_version: 'latest'
+        - run-tests:
+            name: test on oldest versions with MySQL
+            database: mysql
+            ruby_version: '2.6'
+            redmine_version: '4.2.9'
