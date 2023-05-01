@@ -2,37 +2,6 @@ version: 2.1
 
 orbs:
   redmine-plugin: agileware-jp/redmine-plugin@2.3.0
-  plugin-test:
-    commands:
-      run-tests:
-        parameters:
-          plugin:
-            default: ''
-            description: Plugin name. If unspecified it will be the current repository's plugin.
-            type: string
-          redmine_root:
-            default: redmine
-            description: Directory where redmine is installed
-            type: string
-        steps:
-          - run:
-              name: Setup Database
-              command: 'RAILS_ENV=test bundle exec rake db:migrate redmine:plugins:migrate'
-              working_directory: << parameters.redmine_root >>
-          - run:
-              name: Set tested plugin
-              command: |
-                PLUGIN_NAME='<< parameters.plugin >>'
-                if [ -z $PLUGIN_NAME ]; then
-                  PLUGIN_NAME=$CIRCLE_PROJECT_REPONAME
-                fi
-                
-                echo $PLUGIN_NAME >> .tested_plugin
-              working_directory: << parameters.redmine_root >>
-          - run:
-              command: >-
-                RAILS_ENV=test bundle exec rake redmine:plugins:test PLUGIN=`cat .tested_plugin`
-              working_directory: << parameters.redmine_root >>
 
 jobs:
   run-tests:
@@ -59,7 +28,7 @@ jobs:
       - redmine-plugin/generate-database_yml
       - redmine-plugin/bundle-install
       - redmine-plugin/migrate-without-plugins
-      - plugin-test/run-tests
+      - redmine-plugin/test
 
 workflows:
   run-tests-workflow:
