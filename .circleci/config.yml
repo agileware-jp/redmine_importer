@@ -26,13 +26,14 @@ orbs:
                 if [ -z $PLUGIN_NAME ]; then
                   PLUGIN_NAME=$CIRCLE_PROJECT_REPONAME
                 fi
-
+                
                 echo $PLUGIN_NAME >> .tested_plugin
               working_directory: << parameters.redmine_root >>
           - run:
               command: >-
                 RAILS_ENV=test bundle exec rake redmine:plugins:test PLUGIN=`cat .tested_plugin`
               working_directory: << parameters.redmine_root >>
+
 jobs:
   run-tests:
     executor:
@@ -59,16 +60,17 @@ jobs:
       - redmine-plugin/bundle-install
       - redmine-plugin/migrate-without-plugins
       - plugin-test/run-tests
+
 workflows:
   run-tests-workflow:
     jobs:
-        - run-tests:
-            name: test on newest versions with PostgreSQL
-            database: pg
-            ruby_version: '2.7'
-            redmine_version: 'latest'
-        - run-tests:
-            name: test on oldest versions with MySQL
-            database: mysql
-            ruby_version: '2.6'
-            redmine_version: '4.2.9'
+      - run-tests:
+          name: test on newest versions with PostgreSQL
+          database: pg
+          ruby_version: '2.7'
+          redmine_version: 'latest'
+      - run-tests:
+          name: test on oldest versions with MySQL
+          database: mysql
+          ruby_version: '2.6'
+          redmine_version: '4.2.9'
