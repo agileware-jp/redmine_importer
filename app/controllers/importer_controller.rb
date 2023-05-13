@@ -141,7 +141,7 @@ class ImporterController < ApplicationController
                 encoding: 'UTF-8',
                 quote_char: iip.quote_char,
                 col_sep: iip.col_sep }
-    CSV.new(iip.csv_data, csv_opt).each do |row|
+    CSV.new(iip.csv_data, **csv_opt).each do |row|
       project = Project.find_by_name(fetch('standard_field-project', row))
       project ||= @project
 
