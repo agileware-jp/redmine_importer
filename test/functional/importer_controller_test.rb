@@ -387,6 +387,7 @@ class ImporterControllerTest < ActionController::TestCase
     membership.roles << role
     membership.principal = sponsor
     sponsor.save!
+    user.pref.auto_watch_on = nil if Redmine::VERSION.to_s.to_f >= 5.1
     user.save!
     user
   end
