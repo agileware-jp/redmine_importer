@@ -2,10 +2,17 @@
 
 require 'redmine'
 
-Rails.application.config.after_initialize do
-  # Ensure plugin classes are reloaded in development
-  ActiveSupport::Dependencies.autoload_paths << File.expand_path('../app/models', __FILE__)
-  ActiveSupport::Dependencies.autoload_paths << File.expand_path('../app/controllers', __FILE__)
+paths = [
+  File.expand_path('../app/models', __FILE__),
+  File.expand_path('../app/controllers', __FILE__)
+]
+
+if Rails.version.to_f >= 7.0
+  Rails.application.config.before_initialize do
+    paths.each { |p| Rails.autoloaders.main.push_dir(p) }
+  end
+else
+  paths.each { |p| ActiveSupport::Dependencies.autoload_paths << p }
 end
 
 Redmine::Plugin.register :redmine_importer do
