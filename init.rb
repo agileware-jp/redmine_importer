@@ -2,18 +2,17 @@
 
 require 'redmine'
 
-paths = [
-  File.expand_path('../app/models', __FILE__),
-  File.expand_path('../app/controllers', __FILE__)
-]
+# Ensure plugin classes are loaded
+base_path = File.expand_path('..', __FILE__)
+app_path = File.join(base_path, 'app')
+models_path = File.join(app_path, 'models')
+controllers_path = File.join(app_path, 'controllers')
 
-if Rails.version.to_f >= 7.0
-  Rails.application.config.before_initialize do
-    paths.each { |p| Rails.autoloaders.main.push_dir(p) }
-  end
-else
-  paths.each { |p| ActiveSupport::Dependencies.autoload_paths << p }
-end
+$LOAD_PATH.unshift(models_path, controllers_path) unless $LOAD_PATH.include?(models_path)
+ActiveSupport::Dependencies.autoload_paths += [models_path, controllers_path]
+
+require File.join(models_path, 'import_in_progress')
+require File.join(controllers_path, 'importer_controller')
 
 Redmine::Plugin.register :redmine_importer do
   name 'Issue Importer'
