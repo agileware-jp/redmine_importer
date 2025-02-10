@@ -229,15 +229,10 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   test 'should reset pk sequence' do
+    return unless ActiveRecord::Base.connection.respond_to?(:set_pk_sequence!)
     return unless ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
 
-    if ActiveRecord::Base.connection.adapter_name.downcase.include?('postgresql')
-      # For PostgreSQL, we need to ensure the sequence is properly reset
-      ActiveRecord::Base.connection.execute("SELECT setval('issues_id_seq', 4422, true)")
-    else
-      # For other databases like MySQL, use existing method
-      ActiveRecord::Base.connection.set_pk_sequence!('issues', 4422)
-    end
+    ActiveRecord::Base.connection.set_pk_sequence!('issues', 4422)
 
     @iip.update!(csv_data: "#,Subject,Tracker,Priority\n4423,test,Defect,Critical\n")
     post :result, params: build_params(use_issue_id: '1')
