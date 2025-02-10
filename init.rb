@@ -2,6 +2,12 @@
 
 require 'redmine'
 
+Rails.application.config.after_initialize do
+  # Ensure plugin classes are reloaded in development
+  ActiveSupport::Dependencies.autoload_paths << File.expand_path('../app/models', __FILE__)
+  ActiveSupport::Dependencies.autoload_paths << File.expand_path('../app/controllers', __FILE__)
+end
+
 Redmine::Plugin.register :redmine_importer do
   name 'Issue Importer'
   author 'Martin Liu / Leo Hourvitz / Stoyan Zhekov / Jérôme Bataille / Agileware Inc.'
