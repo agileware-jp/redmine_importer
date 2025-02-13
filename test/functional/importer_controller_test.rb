@@ -16,7 +16,7 @@ class ImporterControllerTest < ActionController::TestCase
     @role = Role.create! name: 'ADMIN', permissions: %i[import view_issues]
     @user = create_user!(@role, @project)
     @iip = create_iip_for_multivalues!(@user, @project)
-    @issue = create_issue!(@project, @user, { id: 70_385 })
+    @issue = create_issue!(@project, @user, { id: 70_385, tracker: @tracker })
     create_custom_fields!(@issue)
     create_versions!(@project)
     User.stubs(:current).returns(@user)
@@ -118,7 +118,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
     issue = Issue.find_by!(subject: 'タピオカ')
-    assert %w[Tokyo Osaka].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) }
+    assert(%w[Tokyo Osaka].all? { |area| area.in?(keyval_vals_for(Issue.find_by!(subject: 'タピオカ'))) })
     assert Issue.find_by(subject: 'サーターアンダギー').nil?
   end
 
@@ -416,7 +416,7 @@ class ImporterControllerTest < ActionController::TestCase
     issue.project = project
     issue.subject = options[:subject] || 'foobar'
     issue.priority = IssuePriority.find_or_create_by!(name: 'Critical')
-    issue.tracker = project.trackers.first
+    issue.tracker = options[:tracker] || project.trackers.first
     issue.author = author
     issue.status = options[:status] || IssueStatus.find_or_create_by!(name: 'New')
     issue.start_date = author.today

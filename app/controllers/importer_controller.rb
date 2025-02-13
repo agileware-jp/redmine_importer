@@ -7,8 +7,6 @@ MultipleIssuesForUniqueValue = Class.new(RuntimeError)
 NoIssueForUniqueValue = Class.new(RuntimeError)
 
 class ImporterController < ApplicationController
-  unloadable
-
   before_action :find_project
 
   ISSUE_ATTRS = %i[id subject assigned_to fixed_version

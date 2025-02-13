@@ -1,9 +1,36 @@
 version: 2.1
 
 orbs:
-  redmine-plugin: agileware-jp/redmine-plugin@3.5.0
+  redmine-plugin: agileware-jp/redmine-plugin@3.8.0
 
 jobs:
+  run-tests-git-url:
+    parameters:
+      redmine_git_url:
+        type: string
+      redmine_version:
+        type: string
+      ruby_version:
+        type: string
+      db:
+        type: enum
+        enum: ['mysql', 'pg']
+      db_version:
+        type: string
+    executor:
+      name: redmine-plugin/ruby-<< parameters.db >>
+      ruby_version: << parameters.ruby_version >>
+      db_version: << parameters.db_version >>
+    steps:
+      - checkout
+      - redmine-plugin/download-redmine-git-url:
+          git_url: << parameters.redmine_git_url >>
+          version: << parameters.redmine_version >>
+      - redmine-plugin/install-self
+      - redmine-plugin/generate-database_yml
+      - redmine-plugin/bundle-install
+      - redmine-plugin/migrate-without-plugins
+      - redmine-plugin/test
   run-tests:
     executor:
       name: redmine-plugin/ruby-<< parameters.db >>
@@ -36,6 +63,14 @@ default_context: &default_context
 workflows:
   run-tests-workflow:
     jobs:
+      - run-tests-git-url:
+          !!merge <<: *default_context
+          name: test on Redmine git with PostgreSQL
+          redmine_git_url: $REDMINE_GIT_URL
+          redmine_version: $REDMINE_GIT_REVISION
+          ruby_version: $REDMINE_GIT_RUBY_VERSION
+          db: pg
+          db_version: $POSTGRES_VERSION
       - run-tests:
           <<: *default_context
           name: Test on supported maximum versions with PostgreSQL
