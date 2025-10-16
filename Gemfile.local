@@ -1,3 +1,5 @@
 group :test do
   dependencies.reject! { |i| i.name == 'nokogiri' } # Ensure Nokogiri have new version
 end
+
+gem 'nkf'
