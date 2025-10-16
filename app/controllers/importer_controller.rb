@@ -539,7 +539,7 @@ class ImporterController < ApplicationController
                     when 'version'
                       version_id_for_name!(project, value, add_versions).to_s
                     when 'date'
-                      value.to_date.to_s(:db)
+                      value.to_date.to_fs(:db)
                     when 'bool'
                       convert_to_0_or_1(value)
                     when 'enumeration'
