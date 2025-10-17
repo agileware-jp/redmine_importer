@@ -350,6 +350,22 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal 0, Issue.count
   end
 
+  test 'should handle start_date with different format than setting' do
+    Issue.delete_all
+    with_settings :date_format => '%Y-%m-%d' do
+      @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Start date\n1,Task with different date format,Defect,New,Critical,15/05/2023\n")
+      post :result, params: build_params.tap { |params|
+        params[:fields_map]['Start date'] = 'standard_field-start_date'
+      }
+      assert_response :success
+      assert !response.body.include?('Warning')
+      assert_equal 1, Issue.count
+      issue = Issue.first
+      assert_equal 'Task with different date format', issue.subject
+      assert_equal Date.new(2023, 5, 15), issue.start_date
+    end
+  end
+
   protected
 
   def build_params(opts = {})
