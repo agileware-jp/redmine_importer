@@ -7,6 +7,7 @@ MultipleIssuesForUniqueValue = Class.new(RuntimeError)
 NoIssueForUniqueValue = Class.new(RuntimeError)
 
 class ImporterController < ApplicationController
+  using RedmineImporter::Patches::Redmine51ToFsMethodPatch
   before_action :find_project
 
   ISSUE_ATTRS = %i[id subject assigned_to fixed_version
@@ -539,7 +540,7 @@ class ImporterController < ApplicationController
                     when 'version'
                       version_id_for_name!(project, value, add_versions).to_s
                     when 'date'
-                      value.to_date.to_s(:db)
+                      value.to_date.to_fs(:db)
                     when 'bool'
                       convert_to_0_or_1(value)
                     when 'enumeration'

@@ -283,6 +283,89 @@ class ImporterControllerTest < ActionController::TestCase
     assert @issue.reload.status.is_closed?
   end
 
+  test 'should handle date custom field on create' do
+    start_date_field = create_date_custom_field!('StartDate', @project)
+    due_date_field = create_date_custom_field!('DueDate', @project)
+    @tracker.custom_fields << start_date_field
+    @tracker.custom_fields << due_date_field
+    Issue.delete_all
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,StartDate,DueDate\n1,Task with dates,Defect,New,Critical,2023-05-15,2023-06-30\n")
+    post :result, params: build_params.tap { |params|
+      params[:fields_map]['StartDate'] = 'custom_field-StartDate'
+      params[:fields_map]['DueDate'] = 'custom_field-DueDate'
+    }
+    assert_response :success
+    assert !response.body.include?('Warning')
+    assert_equal 1, Issue.count
+    issue = Issue.first
+    assert_equal 'Task with dates', issue.subject
+    assert_equal '2023-05-15', issue.custom_value_for(start_date_field).value
+    assert_equal '2023-06-30', issue.custom_value_for(due_date_field).value
+  end
+
+  test 'should handle date custom field on update' do
+    start_date_field = create_date_custom_field!('StartDate', @project)
+    @tracker.custom_fields << start_date_field
+    @issue.reload
+    @issue.custom_field_values.detect { |cfv| cfv.custom_field == start_date_field }.value = '2023-01-01'
+    @issue.save!
+    @iip.update!(csv_data: "#,Subject,StartDate\n#{@issue.id},Updated task,2023-12-25\n")
+    post :result, params: build_params(update_issue: 'true').tap { |params|
+      params[:fields_map]['StartDate'] = 'custom_field-StartDate'
+    }
+    assert_response :success
+    assert !response.body.include?('Warning')
+    @issue.reload
+    assert_equal 'Updated task', @issue.subject
+    assert_equal '2023-12-25', @issue.custom_value_for(start_date_field).value
+  end
+
+  test 'should handle blank date custom field' do
+    start_date_field = create_date_custom_field!('StartDate', @project)
+    @tracker.custom_fields << start_date_field
+    Issue.delete_all
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,StartDate\n1,Task with blank date,Defect,New,Critical,\n")
+    post :result, params: build_params.tap { |params|
+      params[:fields_map]['StartDate'] = 'custom_field-StartDate'
+    }
+    assert_response :success
+    assert !response.body.include?('Warning')
+    assert_equal 1, Issue.count
+    issue = Issue.first
+    assert_equal 'Task with blank date', issue.subject
+    # Blank date values are stored as empty strings, not nil
+    assert_equal '', issue.custom_value_for(start_date_field).value
+  end
+
+  test 'should handle invalid date custom field value' do
+    invalid_date_field = create_date_custom_field!('InvalidDate', @project)
+    @tracker.custom_fields << invalid_date_field
+    Issue.delete_all
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,InvalidDate\n1,Task with invalid date,Defect,New,Critical,not-a-date\n")
+    post :result, params: build_params.tap { |params|
+      params[:fields_map]['InvalidDate'] = 'custom_field-InvalidDate'
+    }
+    assert_response :success
+    assert response.body.include?('Warning')
+    assert_equal 0, Issue.count
+  end
+
+  test 'should handle start_date with different format than setting' do
+    Issue.delete_all
+    with_settings :date_format => '%Y-%m-%d' do
+      @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Start date\n1,Task with different date format,Defect,New,Critical,15/05/2023\n")
+      post :result, params: build_params.tap { |params|
+        params[:fields_map]['Start date'] = 'standard_field-start_date'
+      }
+      assert_response :success
+      assert !response.body.include?('Warning')
+      assert_equal 1, Issue.count
+      issue = Issue.first
+      assert_equal 'Task with different date format', issue.subject
+      assert_equal Date.new(2023, 5, 15), issue.start_date
+    end
+  end
+
   protected
 
   def build_params(opts = {})
@@ -463,6 +546,14 @@ class ImporterControllerTest < ActionController::TestCase
   def create_versions!(project)
     project.versions.create! name: 'Admin', status: 'open'
     project.versions.create! name: '2013-09-25', status: 'open'
+  end
+
+  def create_date_custom_field!(name, project)
+    field = IssueCustomField.new name: name, multiple: false
+    field.field_format = 'date'
+    field.projects << project
+    field.save!
+    field
   end
 
   def get_csv(filename)

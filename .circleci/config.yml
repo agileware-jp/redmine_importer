@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  redmine-plugin: agileware-jp/redmine-plugin@3.8.0
+  redmine-plugin: agileware-jp/redmine-plugin@3.9.0
 
 jobs:
   run-tests-git-url:
@@ -46,10 +46,13 @@ jobs:
         enum: ['mysql', 'pg']
       db_version:
         type: string
+      github_token:
+        type: string
     steps:
       - checkout
       - redmine-plugin/download-redmine:
           version: << parameters.redmine_version >>
+          github_token: << parameters.github_token >>
       - redmine-plugin/install-self
       - redmine-plugin/generate-database_yml
       - redmine-plugin/bundle-install
@@ -58,6 +61,7 @@ jobs:
 
 default_context: &default_context
   context:
+    - github-machine-token-public-no-permissions
     - lychee-ci-environment
 
 workflows:
@@ -78,6 +82,7 @@ workflows:
           ruby_version: $RUBY_MAX_VERSION
           db: pg
           db_version: $POSTGRES_VERSION
+          github_token: $GITHUB_PERSONAL_TOKEN
       - run-tests:
           <<: *default_context
           name: Test on supported minimum versions with MySQL
@@ -85,3 +90,4 @@ workflows:
           ruby_version: $RUBY_MIN_VERSION
           db: mysql
           db_version: $MYSQL_VERSION
+          github_token: $GITHUB_PERSONAL_TOKEN
