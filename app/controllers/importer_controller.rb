@@ -7,6 +7,7 @@ MultipleIssuesForUniqueValue = Class.new(RuntimeError)
 NoIssueForUniqueValue = Class.new(RuntimeError)
 
 class ImporterController < ApplicationController
+  using RedmineImporter::Patches::Redmine51ToFsMethodPatch
   before_action :find_project
 
   ISSUE_ATTRS = %i[id subject assigned_to fixed_version
