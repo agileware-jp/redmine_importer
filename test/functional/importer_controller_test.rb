@@ -5,6 +5,8 @@ require File.expand_path('../test_helper', __dir__)
 class ImporterControllerTest < ActionController::TestCase
   include ActiveJob::TestHelper
 
+  fixtures :users
+
   def setup
     ActionController::Base.allow_forgery_protection = false
     @project = Project.create! name: 'foo', identifier: 'importer_controller_test'
