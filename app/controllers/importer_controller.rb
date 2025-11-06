@@ -703,7 +703,10 @@ class ImporterController < ApplicationController
     return @user_by_login[login] if @user_by_login.key?(login)
 
     begin
-      user = Principal.detect_by_keyword(User.includes(:email_address), login)
+      # Load all users once and cache them for the entire import session
+      @all_users ||= User.includes(:email_address).to_a
+
+      user = Principal.detect_by_keyword(@all_users, login)
 
       if user.nil?
         raise ActiveRecord::RecordNotFound
