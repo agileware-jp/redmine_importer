@@ -125,7 +125,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle issue relation' do
     other_issue = create_issue!(@project, @user, { subject: 'other_issue' })
     @iip.update!(csv_data: "#,Subject,Duplicated issue ID\n#{@issue.id},set other issue relation,#{other_issue.id}\n")
-    post :result, params: build_params(update_issue: 'true').tap { |params|
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1').tap { |params|
                             params[:fields_map]['Duplicated issue ID'] = "issue_relation-#{IssueRelation::TYPE_DUPLICATED}"
                           }
     assert_response :success
@@ -253,7 +253,7 @@ class ImporterControllerTest < ActionController::TestCase
     closed_status = IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
     parent = create_issue!(@project, @user, status: closed_status)
     @iip.update!(csv_data: "#,Parent\n#{@issue.id},#{parent.id}\n")
-    post :result, params: build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
     assert_response :success
     assert response.body.include?('Error')
     assert_nil @issue.reload.parent
@@ -266,7 +266,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert !@child.status.is_closed?
     IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
     @iip.update!(csv_data: "#,Status\n#{@issue.id},Closed\n")
-    post :result, params: build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
     assert_response :success
     assert response.body.include?('Error')
     assert !@issue.reload.status.is_closed?
@@ -277,7 +277,7 @@ class ImporterControllerTest < ActionController::TestCase
     new_issue = create_issue!(@project, @user, status: closed_status)
     @issue.reload.update!(status: closed_status, parent_id: new_issue.id)
     @iip.update!(csv_data: "#,Status\n#{@issue.id},New\n")
-    post :result, params: build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
     assert_response :success
     assert response.body.include?('Error')
     assert @issue.reload.status.is_closed?
@@ -363,6 +363,49 @@ class ImporterControllerTest < ActionController::TestCase
       issue = Issue.first
       assert_equal 'Task with different date format', issue.subject
       assert_equal Date.new(2023, 5, 15), issue.start_date
+    end
+  end
+
+  test 'should use id-based search when use_issue_id is true' do
+    # Create parent issue (id will be auto-generated)
+    parent = create_issue!(@project, @user, subject: 'Parent Issue')
+
+    # With use_issue_id=true, parent should be found by id
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n100,Child A,Defect,New,Critical,#{parent.id}\n")
+    post :result, params: build_params(use_issue_id: '1')
+    assert_response :success
+    assert !response.body.include?('Warning')
+
+    child_a = Issue.find(100)
+    assert_equal parent.id, child_a.parent_id
+  end
+
+  test 'should not use id-based search when use_issue_id is false' do
+    # Create parent issue (id will be auto-generated)
+    parent = create_issue!(@project, @user, subject: 'Parent Issue')
+
+    # With use_issue_id=false and unique_field='#' -> 'standard_field-id'
+    # Before fix: Would incorrectly use id-based search
+    # After fix: Uses query filter which should fail or behave differently
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n101,Child B,Defect,New,Critical,#{parent.id}\n")
+    post :result, params: build_params # use_issue_id defaults to false
+    assert_response :success
+
+    # After the fix, since 'standard_field-id' is not a valid IssueQuery filter,
+    # the parent lookup should fail and produce a warning or error
+    child_b = Issue.find_by(subject: 'Child B')
+
+    # The expected behavior after fix: either warning is shown, or parent is not set
+    # (depending on how IssueQuery handles invalid filters)
+    if child_b
+      # If issue was created, parent should not be set correctly
+      # because the query filter 'standard_field-id' is invalid
+      assert_nil child_b.parent_id,
+        'Parent should not be set when use_issue_id=false with standard_field-id as unique_attr'
+    else
+      # Issue creation failed, check for warning
+      assert response.body.include?('Warning'),
+        'Should show warning when using standard_field-id without use_issue_id=true'
     end
   end
 
