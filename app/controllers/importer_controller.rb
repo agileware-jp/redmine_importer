@@ -246,7 +246,7 @@ class ImporterController < ApplicationController
 
       if issue_saved
         @issue_by_unique_attr[row[unique_field]] = issue if unique_field
-        do_callbacks(row[unique_field], issue) if unique_field
+        @deferred_callbacks.execute(row[unique_field], issue) if unique_field
 
         if send_emails
           if update_issue
@@ -274,7 +274,7 @@ class ImporterController < ApplicationController
               other_issue = @issue_by_unique_attr[other_value]
               unless other_issue
                 # Target not in cache yet - register callback for deferred creation
-                add_callback(other_value, :add_relation, row[unique_field], rtype)
+                @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
                 next
               end
             else
@@ -316,12 +316,7 @@ class ImporterController < ApplicationController
     end # do
 
     # Warn about any unresolved deferred references
-    @pending_callbacks.each do |unique_value, callbacks|
-      callbacks.each do |name, _args|
-        @messages << "Warning: Deferred #{name} for '#{unique_value}' was never resolved " \
-                     "(target issue not found in CSV)"
-      end
-    end
+    @deferred_callbacks.warn_unresolved
 
     unless @failed_issues.empty?
       @failed_issues = @failed_issues.sort
@@ -480,7 +475,7 @@ class ImporterController < ApplicationController
         issue.parent_issue_id = cached_parent.id
       else
         # Parent not in cache yet - register callback for deferred assignment
-        add_callback(parent_value, :set_parent, row[unique_field])
+        @deferred_callbacks.register(parent_value, :set_parent, row[unique_field])
       end
       return
     end
@@ -490,7 +485,7 @@ class ImporterController < ApplicationController
   rescue NoIssueForUniqueValue
     # Register callback for deferred parent assignment
     # Parent issue may appear later in CSV
-    add_callback(parent_value, :set_parent, row[unique_field])
+    @deferred_callbacks.register(parent_value, :set_parent, row[unique_field])
   rescue MultipleIssuesForUniqueValue
     @failed_count += 1
     @failed_issues[@failed_count] = row
@@ -516,53 +511,11 @@ class ImporterController < ApplicationController
     @version_id_by_name = {}
     # Cache of CustomFieldEnumeration by name
     @enumeration_id_by_name = {}
-    # Pending callbacks for deferred reference resolution
-    # { unique_value => [[callback_name, args], ...] }
-    @pending_callbacks = {}
-  end
-
-  # Registers a callback to be executed when an issue with the given unique_value is imported
-  def add_callback(unique_value, name, *args)
-    @pending_callbacks[unique_value] ||= []
-    @pending_callbacks[unique_value] << [name, args]
-  end
-
-  # Executes pending callbacks for the given unique_value
-  def do_callbacks(unique_value, object)
-    if callbacks = @pending_callbacks.delete(unique_value)
-      callbacks.each do |name, args|
-        send(:"#{name}_callback", object, *args)
-      end
-    end
-  end
-
-  # Callback: Sets parent for a previously imported issue
-  def set_parent_callback(parent_issue, child_unique_value)
-    child_issue = @issue_by_unique_attr[child_unique_value]
-    return unless child_issue
-
-    # Reload to get latest version and avoid StaleObjectError
-    child_issue.reload
-    child_issue.parent_issue_id = parent_issue.id
-    unless child_issue.save
-      @messages << "Warning: Failed to set parent for issue '#{child_unique_value}': " \
-                   "#{child_issue.errors.full_messages.join(', ')}"
-    end
-  end
-
-  # Callback: Creates a relation between two previously imported issues
-  def add_relation_callback(to_issue, from_unique_value, relation_type)
-    from_issue = @issue_by_unique_attr[from_unique_value]
-    return unless from_issue
-
-    relation = IssueRelation.new(
-      issue_from: from_issue,
-      issue_to: to_issue,
-      relation_type: relation_type
+    # Deferred callbacks for resolving forward references in CSV
+    @deferred_callbacks = RedmineImporter::DeferredCallbacks.new(
+      issue_cache: @issue_by_unique_attr,
+      messages: @messages
     )
-    unless relation.save
-      @messages << "Warning: Failed to create relation: #{relation.errors.full_messages.join(', ')}"
-    end
   end
 
   def handle_watchers(issue, row, watchers)
