@@ -91,7 +91,6 @@ class ImporterController < ApplicationController
     send_emails = params[:send_emails]
     add_categories = params[:add_categories]
     add_versions = params[:add_versions]
-    use_issue_id = params[:use_issue_id].present? ? true : false
     ignore_non_exist = params[:ignore_non_exist]
 
     # which fields should we use? what maps to what?
@@ -569,6 +568,10 @@ class ImporterController < ApplicationController
 
   private
 
+  def use_issue_id
+    params[:use_issue_id].present?
+  end
+
   def fetch(key, row)
     row[@attrs_map[key]]
   end
@@ -659,7 +662,7 @@ class ImporterController < ApplicationController
       return @issue_by_unique_attr[attr_value]
     end
 
-    if unique_attr == 'standard_field-id'
+    if use_issue_id && unique_attr == 'standard_field-id'
       issues = [Issue.find_by_id(attr_value)].compact
     else
       # Use IssueQuery class Redmine >= 2.3.0
