@@ -5,6 +5,8 @@ require File.expand_path('../test_helper', __dir__)
 class ImporterControllerTest < ActionController::TestCase
   include ActiveJob::TestHelper
 
+  fixtures :users
+
   def setup
     ActionController::Base.allow_forgery_protection = false
     @project = Project.create! name: 'foo', identifier: 'importer_controller_test'
@@ -191,6 +193,21 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.reload
     assert_equal 'barfooz', @issue.subject
     assert_nil @issue.assigned_to
+  end
+
+  test 'should match assigned_to by user display name' do
+    user = User.find_by_login('jsmith')
+    Member.create!(user: user, project: @project, roles: [@role])
+
+    @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,#{user.name}\n")
+    post :result, params: build_params(update_issue: 'true').tap { |params|
+                            params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
+                          }
+    assert_response :success
+    assert_not response.body.include?('Warning')
+    @issue.reload
+    assert_equal 'barfooz', @issue.subject
+    assert_equal user, @issue.assigned_to
   end
 
   test 'should not error when user type CF value is missing but use_anonymous is true' do
