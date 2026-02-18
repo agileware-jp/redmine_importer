@@ -41,3 +41,7 @@ ja:
   text_rmi_specify_unique_field_for_column: "「%{column}」という他のチケットと関連する列があるため、ユニークフィールドを選択する必要があります。"
 
   flash_csv_file_is_blank: "CSVファイルが指定されていません。"
+
+  label_max_csv_rows: "最大CSV行数"
+  text_max_csv_rows_info: "CSVインポートで許可される最大行数（ヘッダー行を除く）"
+  error_csv_row_limit_exceeded: "CSVファイルが最大許容行数を超えています。最大値: %{max_rows}、実際の行数: %{actual_rows}"

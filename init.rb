@@ -8,6 +8,9 @@ Redmine::Plugin.register :redmine_importer do
   description 'Issue import plugin for Redmine.'
   version '2.0.1'
 
+  settings default: { 'max_csv_rows' => '5000' },
+           partial: 'settings/redmine_importer_settings'
+
   project_module :importer do
     permission :import, importer: :index
   end

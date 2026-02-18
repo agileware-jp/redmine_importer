@@ -44,6 +44,10 @@ class ImporterController < ApplicationController
     validate_csv_data(iip.csv_data)
     return if flash[:error].present?
 
+    # Check CSV row count limit
+    validate_csv_row_limit(iip)
+    return if flash[:error].present?
+
     sample_data(iip)
     return if flash[:error].present?
 
@@ -596,6 +600,32 @@ class ImporterController < ApplicationController
       redirect_to project_importer_path(project_id: @project)
 
       nil
+    end
+  end
+
+  def validate_csv_row_limit(iip)
+    max_rows = Setting.plugin_redmine_importer['max_csv_rows'].to_i
+    max_rows = 5000 if max_rows <= 0 # Default fallback
+
+    # Count actual data rows using CSV parser (excluding header)
+    row_count = 0
+    begin
+      CSV.new(iip.csv_data, headers: true,
+                           encoding: 'UTF-8',
+                           quote_char: iip.quote_char,
+                           col_sep: iip.col_sep).each do
+        row_count += 1
+      end
+    rescue StandardError => e
+      # If CSV parsing fails, fall back to line counting
+      row_count = iip.csv_data.lines.to_a.size - 1
+    end
+
+    if row_count > max_rows
+      flash[:error] = I18n.t(:error_csv_row_limit_exceeded,
+                            max_rows: max_rows,
+                            actual_rows: row_count)
+      redirect_to project_importer_path(project_id: @project)
     end
   end
 
