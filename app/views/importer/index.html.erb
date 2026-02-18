@@ -1,6 +1,6 @@
 <h2><%=l(:label_issue_importer)%></h2>
 
-<%= form_tag({:action => 'match'}, {:multipart => true}) do %>
+<%= form_tag({:action => 'match'}, {:multipart => true, :id => 'csv-upload-form'}) do %>
   <%= hidden_field_tag 'project_id', @project.id %>
 
   <p><label><%=l(:label_upload_notice)%></label><br/>
@@ -21,6 +21,29 @@
       <%= text_field_tag "wrapper", '"', {:size => 3, :maxlength => 1}%></p>
   </fieldset>
 
-  <%= submit_tag l(:button_upload) %>
+  <%= submit_tag l(:button_upload), :id => 'upload-button', :data => {:disable_with => l(:label_loading)} %>
 <% end %>
 
+<script type="text/javascript">
+  $(document).ready(function() {
+    var formSubmitting = false;
+
+    $('#csv-upload-form').on('submit', function(e) {
+      if (formSubmitting) {
+        e.preventDefault();
+        return false;
+      }
+
+      formSubmitting = true;
+      $('#upload-button').prop('disabled', true);
+
+      // Re-enable after 10 seconds in case of error
+      setTimeout(function() {
+        formSubmitting = false;
+        $('#upload-button').prop('disabled', false);
+      }, 10000);
+
+      return true;
+    });
+  });
+</script>
