@@ -1,0 +1,70 @@
+name: Test
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        redmine: ['6.0-stable', '6.1-stable']
+        ruby: ['3.3']
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: redmine_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout Redmine
+        uses: actions/checkout@v4
+        with:
+          repository: redmine/redmine
+          ref: ${{ matrix.redmine }}
+          path: redmine
+
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          path: redmine/plugins/redmine_importer
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+
+      - name: Setup & Test
+        working-directory: redmine
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/redmine_test
+        run: |
+          # database.yml設定
+          cp plugins/redmine_importer/test/fixtures/database.yml.github config/database.yml
+
+          # Bundlerインストール
+          gem install bundler
+
+          # 依存関係インストール
+          bundle install --jobs 4 --retry 3
+
+          # データベース準備
+          bundle exec rake db:create RAILS_ENV=test
+          bundle exec rake db:migrate RAILS_ENV=test
+
+          # プラグインのテスト実行
+          bundle exec rake redmine:plugins:test NAME=redmine_importer RAILS_ENV=test
