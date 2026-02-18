@@ -43,28 +43,38 @@ jobs:
         with:
           path: redmine/plugins/redmine_importer
 
+      - name: Configure database
+        working-directory: redmine
+        run: |
+          cat <<'EOF' > config/database.yml
+          test:
+            adapter: postgresql
+            database: redmine_test
+            host: localhost
+            port: 5432
+            username: postgres
+            password: postgres
+            encoding: utf8
+          EOF
+
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+          working-directory: redmine
 
-      - name: Setup & Test
+      - name: DB setup
         working-directory: redmine
         env:
           RAILS_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/redmine_test
         run: |
-          # database.yml設定
-          cp plugins/redmine_importer/test/fixtures/database.yml.github config/database.yml
-
-          # Bundlerインストール
-          gem install bundler
-
-          # 依存関係インストール
-          bundle install --jobs 4 --retry 3
-
-          # データベース準備
           bundle exec rake db:create RAILS_ENV=test
           bundle exec rake db:migrate RAILS_ENV=test
+          bundle exec rake redmine:plugins:migrate RAILS_ENV=test
 
-          # プラグインのテスト実行
+      - name: Run plugin tests
+        working-directory: redmine
+        env:
+          RAILS_ENV: test
+        run: |
           bundle exec rake redmine:plugins:test NAME=redmine_importer RAILS_ENV=test
