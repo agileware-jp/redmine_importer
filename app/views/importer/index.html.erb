@@ -21,29 +21,13 @@
       <%= text_field_tag "wrapper", '"', {:size => 3, :maxlength => 1}%></p>
   </fieldset>
 
-  <%= submit_tag l(:button_upload), :id => 'upload-button', :data => {:disable_with => l(:label_loading)} %>
+  <%= submit_tag l(:button_upload), :id => 'upload-button' %>
 <% end %>
 
 <script type="text/javascript">
   $(document).ready(function() {
-    var formSubmitting = false;
-
-    $('#csv-upload-form').on('submit', function(e) {
-      if (formSubmitting) {
-        e.preventDefault();
-        return false;
-      }
-
-      formSubmitting = true;
+    $('#csv-upload-form').on('submit', function() {
       $('#upload-button').prop('disabled', true);
-
-      // Re-enable after 10 seconds in case of error
-      setTimeout(function() {
-        formSubmitting = false;
-        $('#upload-button').prop('disabled', false);
-      }, 10000);
-
-      return true;
     });
   });
 </script>

@@ -106,30 +106,14 @@
     <br/>
   </fieldset>
 
-  <%= submit_tag l(:button_submit), :id => 'import-button', :data => {:disable_with => l(:label_loading)} %>
+  <%= submit_tag l(:button_submit), :id => 'import-button' %>
   <br/>
 <% end %>
 
 <script type="text/javascript">
   $(document).ready(function() {
-    var formSubmitting = false;
-
-    $('#map_form').on('submit', function(e) {
-      if (formSubmitting) {
-        e.preventDefault();
-        return false;
-      }
-
-      formSubmitting = true;
+    $('#map_form').on('submit', function() {
       $('#import-button').prop('disabled', true);
-
-      // Re-enable after 30 seconds in case of error
-      setTimeout(function() {
-        formSubmitting = false;
-        $('#import-button').prop('disabled', false);
-      }, 30000);
-
-      return true;
     });
   });
 </script>
