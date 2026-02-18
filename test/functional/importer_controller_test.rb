@@ -63,14 +63,14 @@ class ImporterControllerTest < ActionController::TestCase
     file.rewind
 
     post :match, params: {
-      project_id: @project.id,
+      project_id: @project.identifier,
       file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
       wrapper: '"',
       splitter: ',',
       encoding: 'UTF-8'
     }
 
-    assert_redirected_to project_importer_path(project_id: @project.id)
+    assert_redirected_to project_importer_path(project_id: @project.identifier)
     assert flash[:error].include?('exceeds the maximum allowed rows')
     assert flash[:error].include?('Maximum: 2')
     assert flash[:error].include?('Actual: 3')
@@ -93,7 +93,7 @@ class ImporterControllerTest < ActionController::TestCase
     file.rewind
 
     post :match, params: {
-      project_id: @project.id,
+      project_id: @project.identifier,
       file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
       wrapper: '"',
       splitter: ',',
@@ -432,7 +432,7 @@ class ImporterControllerTest < ActionController::TestCase
     opts.reverse_merge(
       import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
       unique_field: '#',
-      project_id: @project.id,
+      project_id: @project.identifier,
       fields_map: {
         '#' => 'standard_field-id',
         'Subject' => 'standard_field-subject',
