@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: [ master, main, develop ]
+    branches: [ master, main, develop, feature/add-csv-row-limit ]
   pull_request:
     branches: [ master, main, develop ]
 
