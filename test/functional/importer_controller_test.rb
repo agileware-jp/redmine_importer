@@ -62,15 +62,9 @@ class ImporterControllerTest < ActionController::TestCase
     file.write(csv_data)
     file.rewind
 
-    uploaded_file = ActionDispatch::Http::UploadedFile.new(
-      tempfile: file,
-      filename: 'test.csv',
-      type: 'text/csv'
-    )
-
     post :match, params: {
       project_id: @project.id,
-      file: uploaded_file,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
       wrapper: '"',
       splitter: ',',
       encoding: 'UTF-8'
@@ -98,15 +92,9 @@ class ImporterControllerTest < ActionController::TestCase
     file.write(csv_data)
     file.rewind
 
-    uploaded_file = ActionDispatch::Http::UploadedFile.new(
-      tempfile: file,
-      filename: 'test.csv',
-      type: 'text/csv'
-    )
-
     post :match, params: {
       project_id: @project.id,
-      file: uploaded_file,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
       wrapper: '"',
       splitter: ',',
       encoding: 'UTF-8'
