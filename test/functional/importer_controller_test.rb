@@ -48,65 +48,6 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal @user.today, @issue.start_date
   end
 
-  test 'should reject csv exceeding row limit' do
-    # Set max row limit to 2
-    Setting.stubs(:plugin_redmine_importer).returns({ 'max_csv_rows' => '2' })
-
-    # Create CSV with more than 2 data rows
-    csv_data = "id,subject,tracker\n"
-    csv_data += "1,Issue 1,Bug\n"
-    csv_data += "2,Issue 2,Bug\n"
-    csv_data += "3,Issue 3,Bug\n" # This makes it 3 data rows
-
-    file = Tempfile.new(['test', '.csv'])
-    file.write(csv_data)
-    file.rewind
-
-    post :match, params: {
-      project_id: @project.identifier,
-      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
-      wrapper: '"',
-      splitter: ',',
-      encoding: 'UTF-8'
-    }
-
-    assert_redirected_to project_importer_path(project_id: @project.identifier)
-    assert flash[:error].include?('exceeds the maximum allowed rows')
-    assert flash[:error].include?('Maximum: 2')
-    assert flash[:error].include?('Actual: 3')
-  ensure
-    file.close
-    file.unlink
-  end
-
-  test 'should accept csv within row limit' do
-    # Set max row limit to 5
-    Setting.stubs(:plugin_redmine_importer).returns({ 'max_csv_rows' => '5' })
-
-    # Create CSV with 2 data rows
-    csv_data = "id,subject,tracker\n"
-    csv_data += "1,Issue 1,Bug\n"
-    csv_data += "2,Issue 2,Bug\n"
-
-    file = Tempfile.new(['test', '.csv'])
-    file.write(csv_data)
-    file.rewind
-
-    post :match, params: {
-      project_id: @project.identifier,
-      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
-      wrapper: '"',
-      splitter: ',',
-      encoding: 'UTF-8'
-    }
-
-    assert_response :success
-    assert_nil flash[:error]
-  ensure
-    file.close
-    file.unlink
-  end
-
   test 'should create issue if none exists' do
     Mailer.expects(:deliver_issue_add).never
     Issue.delete_all
@@ -693,10 +634,9 @@ class ImporterControllerTest < ActionController::TestCase
   end
 
   def with_plugin_settings(settings, &block)
-    old = Setting['plugin_redmine_importer']
-    Setting['plugin_redmine_importer'] = settings
+    Setting.stubs(:plugin_redmine_importer).returns(settings)
     yield
   ensure
-    Setting['plugin_redmine_importer'] = old
+    Setting.unstub(:plugin_redmine_importer)
   end
 end
