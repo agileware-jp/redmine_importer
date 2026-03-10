@@ -41,3 +41,7 @@ ja:
   text_rmi_specify_unique_field_for_column: "「%{column}」という他のチケットと関連する列があるため、ユニークフィールドを選択する必要があります。"
 
   flash_csv_file_is_blank: "CSVファイルが指定されていません。"
+
+  label_import_processing: "インポート中..."
+  label_import_progress: "進捗: %{processed}/%{total} 行 (%{percent}%)"
+  label_import_completed: "インポートが完了しました。リダイレクトしています..."

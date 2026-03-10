@@ -106,9 +106,43 @@
     <br/>
   </fieldset>
 
-  <%= submit_tag l(:button_submit) %>
+  <%= submit_tag l(:button_submit), :id => 'import-button' %>
   <br/>
 <% end %>
+
+<div id="import-progress" style="display: none; margin: 20px 0;">
+  <h3><%= l(:label_import_processing) %></h3>
+  <div style="background: #eee; border: 1px solid #ccc; border-radius: 4px; height: 24px; width: 100%; max-width: 500px;">
+    <div id="progress-bar" style="background: #628db6; height: 100%; border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
+  </div>
+  <p id="progress-text" style="margin-top: 5px;"></p>
+</div>
+
+<script type="text/javascript">
+  $(document).ready(function() {
+    var progressUrl = '<%= url_for(controller: "importer", action: "progress", project_id: @project.identifier) %>';
+    var pollingInterval;
+
+    $('form').on('submit', function() {
+      $('#import-button').prop('disabled', true);
+      $('#import-progress').show();
+
+      pollingInterval = setInterval(function() {
+        $.getJSON(progressUrl, function(data) {
+          if (data.status === 'processing' && data.total_rows > 0) {
+            var percent = Math.round((data.processed_rows / data.total_rows) * 100);
+            $('#progress-bar').css('width', percent + '%');
+            $('#progress-text').text(data.processed_rows + '/' + data.total_rows + ' (' + percent + '%)');
+          } else if (data.status === 'completed' || data.status === 'none') {
+            clearInterval(pollingInterval);
+            $('#progress-bar').css('width', '100%');
+            $('#progress-text').text('<%= l(:label_import_completed) %>');
+          }
+        });
+      }, 2000);
+    });
+  });
+</script>
 
 <hr/>
 

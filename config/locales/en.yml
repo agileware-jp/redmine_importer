@@ -41,3 +41,7 @@ en:
   text_rmi_specify_unique_field_for_column: "Unique field must be specified because the column %{column} needs to refer to other tasks"
   flash_csv_file_is_blank: "CSV file is blank."
 
+  label_import_processing: "Importing..."
+  label_import_progress: "Progress: %{processed}/%{total} rows (%{percent}%)"
+  label_import_completed: "Import completed. Redirecting..."
+
