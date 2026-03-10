@@ -42,6 +42,6 @@ en:
   flash_csv_file_is_blank: "CSV file is blank."
 
   label_max_csv_rows: "Maximum CSV rows"
-  text_max_csv_rows_info: "Maximum number of rows allowed for CSV import (excluding header)"
+  text_max_csv_rows_info: "Maximum number of rows allowed for CSV import (excluding header row). Default: 5000"
   error_csv_row_limit_exceeded: "CSV file exceeds the maximum allowed rows. Maximum: %{max_rows}, Actual: %{actual_rows}"
 

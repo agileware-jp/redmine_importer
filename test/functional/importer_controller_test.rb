@@ -156,6 +156,60 @@ class ImporterControllerTest < ActionController::TestCase
     assert issue_has_all_of_these_watchers?(@issue, [@user])
   end
 
+  # === CSV row limit tests ===
+
+  test 'should reject csv exceeding row limit' do
+    with_plugin_settings('max_csv_rows' => '2') do
+      csv_data = "Subject,Tracker,Status,Priority\nIssue 1,Defect,New,Critical\nIssue 2,Defect,New,Critical\nIssue 3,Defect,New,Critical\n"
+
+      post :match, params: {
+        project_id: @project.identifier,
+        file: csv_upload(csv_data),
+        wrapper: '"',
+        splitter: ',',
+        encoding: 'U'
+      }
+
+      assert_redirected_to project_importer_path(project_id: @project.identifier)
+      assert_match(/3/, flash[:error])
+      assert_match(/2/, flash[:error])
+    end
+  end
+
+  test 'should accept csv within row limit' do
+    with_plugin_settings('max_csv_rows' => '5') do
+      csv_data = "Subject,Tracker,Status,Priority\nIssue 1,Defect,New,Critical\nIssue 2,Defect,New,Critical\n"
+
+      post :match, params: {
+        project_id: @project.identifier,
+        file: csv_upload(csv_data),
+        wrapper: '"',
+        splitter: ',',
+        encoding: 'U'
+      }
+
+      assert_response :success
+      assert_nil flash[:error]
+    end
+  end
+
+  test 'should use default limit of 5000 when setting is blank' do
+    with_plugin_settings('max_csv_rows' => '') do
+      csv_data = "Subject,Tracker\nIssue 1,Defect\n"
+
+      post :match, params: {
+        project_id: @project.identifier,
+        file: csv_upload(csv_data),
+        wrapper: '"',
+        splitter: ',',
+        encoding: 'U'
+      }
+
+      assert_response :success
+      assert_nil flash[:error]
+    end
+  end
+
   test 'should handle key value list value' do
     Mailer.expects(:deliver_issue_add).never
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
@@ -617,5 +671,20 @@ class ImporterControllerTest < ActionController::TestCase
 
   def get_csv(filename)
     File.read(File.expand_path("../../samples/#{filename}.csv", __FILE__))
+  end
+
+  def csv_upload(csv_data)
+    file = Tempfile.new(['test', '.csv'])
+    file.write(csv_data)
+    file.rewind
+    Rack::Test::UploadedFile.new(file.path, 'text/csv')
+  end
+
+  def with_plugin_settings(settings, &block)
+    old = Setting['plugin_redmine_importer']
+    Setting['plugin_redmine_importer'] = settings
+    yield
+  ensure
+    Setting['plugin_redmine_importer'] = old
   end
 end
