@@ -82,12 +82,17 @@ class ImporterController < ApplicationController
       flash[:error] = 'No import is currently in progress'
       return
     end
+    if iip.processing?
+      flash[:error] = I18n.t(:error_import_already_processing)
+      return
+    end
     if iip.created.strftime('%Y-%m-%d %H:%M:%S') != params[:import_timestamp]
       flash[:error] = 'You seem to have started another import ' \
         'since starting this one. ' \
         'This import cannot be completed'
       return
     end
+    iip.update!(processing: true)
     # which options were turned on?
     update_issue = params[:update_issue]
     update_other_project = params[:update_other_project]

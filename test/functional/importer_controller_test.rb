@@ -210,6 +210,18 @@ class ImporterControllerTest < ActionController::TestCase
     end
   end
 
+  # === Double submit prevention tests ===
+
+  test 'should prevent concurrent import by same user' do
+    @iip.update!(processing: true)
+
+    # Rebuild params before iip gets deleted
+    params = build_params
+    post :result, params: params
+    assert flash[:error].present?
+    assert_match(/processing|progress/i, flash[:error])
+  end
+
   test 'should handle key value list value' do
     Mailer.expects(:deliver_issue_add).never
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
