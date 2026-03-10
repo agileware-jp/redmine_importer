@@ -97,6 +97,36 @@ class ImporterControllerTest < ActionController::TestCase
     assert issue_has_all_of_these_watchers?(@issue, [@user])
   end
 
+  # === Progress tracking tests ===
+
+  test 'should return progress as JSON' do
+    @iip.update!(status: 'processing', total_rows: 100, processed_rows: 42)
+    get :progress, params: { project_id: @project.identifier }, format: :json
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal 'processing', json['status']
+    assert_equal 100, json['total_rows']
+    assert_equal 42, json['processed_rows']
+  end
+
+  test 'should return completed when no import in progress' do
+    @iip.destroy
+    get :progress, params: { project_id: @project.identifier }, format: :json
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal 'none', json['status']
+  end
+
+  test 'should update progress during import' do
+    Issue.delete_all
+    csv_data = "Subject,Tracker,Status,Priority\nIssue 1,Defect,New,Critical\nIssue 2,Defect,New,Critical\n"
+    @iip.update!(csv_data: csv_data)
+    post :result, params: build_params
+    assert_response :success
+    # After import completes, iip should be deleted
+    assert_nil ImportInProgress.find_by_user_id(@user.id)
+  end
+
   test 'should handle key value list value' do
     Mailer.expects(:deliver_issue_add).never
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }

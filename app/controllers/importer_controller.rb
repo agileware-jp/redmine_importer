@@ -65,6 +65,19 @@ class ImporterController < ApplicationController
     @attrs.sort!
   end
 
+  def progress
+    iip = ImportInProgress.find_by_user_id(User.current.id)
+    if iip
+      render json: {
+        status: iip.status,
+        total_rows: iip.total_rows,
+        processed_rows: iip.processed_rows
+      }
+    else
+      render json: { status: 'none', total_rows: 0, processed_rows: 0 }
+    end
+  end
+
   def result
     # used for bookkeeping
     flash.delete(:error)
@@ -85,6 +98,11 @@ class ImporterController < ApplicationController
         'This import cannot be completed'
       return
     end
+
+    # Initialize progress tracking
+    total = iip.csv_data.lines.count - 1 # exclude header
+    iip.update_columns(status: 'processing', total_rows: total, processed_rows: 0)
+
     # which options were turned on?
     update_issue = params[:update_issue]
     update_other_project = params[:update_other_project]
@@ -303,6 +321,12 @@ class ImporterController < ApplicationController
           @messages << "Error: #{attr} #{error_message}"
         end
       end
+
+      # Update progress (every 10 rows to reduce DB writes)
+      processed = @handle_count + @failed_count + @skip_count
+      if processed % 10 == 0 || processed == iip.total_rows
+        iip.update_columns(processed_rows: processed)
+      end
     end # do
 
     unless @failed_issues.empty?
@@ -310,7 +334,8 @@ class ImporterController < ApplicationController
       @headers = @failed_issues[0][1].headers
     end
 
-    # Clean up after ourselves
+    # Mark as completed, then clean up
+    iip.update_columns(status: 'completed', processed_rows: iip.total_rows)
     iip.delete
 
     # Garbage prevention: clean up iips older than 3 days
