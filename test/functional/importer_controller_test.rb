@@ -99,14 +99,24 @@ class ImporterControllerTest < ActionController::TestCase
 
   # === Progress tracking tests ===
 
-  test 'should return progress as JSON' do
-    @iip.update!(status: 'processing', total_rows: 100, processed_rows: 42)
+  test 'should return progress as JSON scoped by project' do
+    @iip.update!(project_id: @project.id, status: 'processing', total_rows: 100, processed_rows: 42)
     get :progress, params: { project_id: @project.identifier }, format: :json
     assert_response :success
     json = JSON.parse(response.body)
     assert_equal 'processing', json['status']
     assert_equal 100, json['total_rows']
     assert_equal 42, json['processed_rows']
+  end
+
+  test 'should not return progress from another project' do
+    other_project = Project.create!(name: 'other', identifier: 'other_project')
+    other_project.trackers << @tracker unless other_project.trackers.include?(@tracker)
+    @iip.update!(project_id: other_project.id, status: 'processing', total_rows: 50, processed_rows: 10)
+    get :progress, params: { project_id: @project.identifier }, format: :json
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal 'none', json['status']
   end
 
   test 'should return completed when no import in progress' do
@@ -509,9 +519,10 @@ class ImporterControllerTest < ActionController::TestCase
     create_iip!('CustomFieldMultiValues', user, project)
   end
 
-  def create_iip!(filename, user, _project)
+  def create_iip!(filename, user, project)
     iip = ImportInProgress.new
     iip.user = user
+    iip.project = project
     iip.csv_data = get_csv(filename)
     # iip.created = DateTime.new(2001,2,3,4,5,6,'+7')
     iip.created = DateTime.now

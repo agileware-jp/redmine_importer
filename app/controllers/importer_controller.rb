@@ -24,10 +24,10 @@ class ImporterController < ApplicationController
       return
     end
 
-    # Delete existing iip to ensure there can't be two iips for a user
-    ImportInProgress.where('user_id = ?', User.current.id).delete_all
+    # Delete existing iip to ensure there can't be two iips for a user/project
+    ImportInProgress.where(user_id: User.current.id, project_id: @project.id).delete_all
     # save import-in-progress data
-    iip = ImportInProgress.find_or_create_by(user_id: User.current.id)
+    iip = ImportInProgress.find_or_create_by(user_id: User.current.id, project_id: @project.id)
     iip.quote_char = params[:wrapper]
     iip.col_sep = params[:splitter]
     iip.encoding = params[:encoding]
@@ -66,7 +66,7 @@ class ImporterController < ApplicationController
   end
 
   def progress
-    iip = ImportInProgress.find_by_user_id(User.current.id)
+    iip = ImportInProgress.find_by(user_id: User.current.id, project_id: @project.id)
     if iip
       render json: {
         status: iip.status,
@@ -87,7 +87,7 @@ class ImporterController < ApplicationController
     unique_attr_checked = false
 
     # Retrieve saved import data
-    iip = ImportInProgress.find_by_user_id(User.current.id)
+    iip = ImportInProgress.find_by(user_id: User.current.id, project_id: @project.id)
     if iip.nil?
       flash[:error] = 'No import is currently in progress'
       return
