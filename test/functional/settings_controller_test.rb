@@ -2,14 +2,14 @@
 
 require File.expand_path('../test_helper', __dir__)
 
-class ImporterSettingsControllerTest < ActionController::TestCase
+class ImporterSettingsControllerTest < Redmine::ControllerTest
   include ActiveJob::TestHelper
 
   tests SettingsController
 
   def setup
-    ActionController::Base.allow_forgery_protection = false
-    @request.session[:user_id] = 1 # admin from fixtures
+    User.current = nil
+    @request.session[:user_id] = 1 # admin
   end
 
   test 'should reject empty max_csv_rows' do
