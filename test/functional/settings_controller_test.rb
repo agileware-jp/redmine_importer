@@ -5,7 +5,14 @@ require File.expand_path('../test_helper', __dir__)
 class SettingsControllerTest < ActionController::TestCase
   def setup
     ActionController::Base.allow_forgery_protection = false
-    @user = User.find(1) # admin
+    @user = User.find_by(admin: true) || User.create!(
+      login: 'admin_test',
+      firstname: 'Admin',
+      lastname: 'Test',
+      mail: 'admin_test@example.com',
+      admin: true,
+      status: User::STATUS_ACTIVE
+    )
     User.stubs(:current).returns(@user)
     @request.session[:user_id] = @user.id
   end
