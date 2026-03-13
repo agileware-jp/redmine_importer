@@ -506,7 +506,12 @@ class ImporterController < ApplicationController
           watcher_user = user_for_login!(watcher)
           next if issue.watcher_users.include?(watcher_user)
 
-          if issue.valid_watcher?(watcher_user)
+          watcher_allowed = if issue.respond_to?(:valid_watcher?)
+                              issue.valid_watcher?(watcher_user)
+                            else
+                              issue.addable_watcher_users.include?(watcher_user)
+                            end
+          if watcher_allowed
             issue.add_watcher(watcher_user)
           end
         rescue ActiveRecord::RecordNotFound
