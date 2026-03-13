@@ -2,22 +2,14 @@
 
 require File.expand_path('../test_helper', __dir__)
 
-class SettingsControllerTest < ActionController::TestCase
+class ImporterSettingsControllerTest < ActionController::TestCase
+  include ActiveJob::TestHelper
+
+  tests SettingsController
+
   def setup
     ActionController::Base.allow_forgery_protection = false
-
-    # Create two admin users — security notification callback requires
-    # an existing admin to receive the notification when a new admin is created
-    sponsor = User.new(admin: true, firstname: 'A', lastname: 'H', mail: 'sponsor@example.com')
-    sponsor.login = 'settings_sponsor'
-    sponsor.save!
-
-    @user = User.new(admin: true, firstname: 'Admin', lastname: 'Test', mail: 'admin_test@example.com')
-    @user.login = 'settings_admin'
-    @user.save!
-
-    User.stubs(:current).returns(@user)
-    @request.session[:user_id] = @user.id
+    @request.session[:user_id] = 1 # admin from fixtures
   end
 
   test 'should reject empty max_csv_rows' do
