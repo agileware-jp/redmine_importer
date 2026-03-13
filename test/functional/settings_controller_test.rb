@@ -5,14 +5,17 @@ require File.expand_path('../test_helper', __dir__)
 class SettingsControllerTest < ActionController::TestCase
   def setup
     ActionController::Base.allow_forgery_protection = false
-    @user = User.find_by(admin: true) || User.create!(
-      login: 'admin_test',
-      firstname: 'Admin',
-      lastname: 'Test',
-      mail: 'admin_test@example.com',
-      admin: true,
-      status: User::STATUS_ACTIVE
-    )
+
+    # Create two admin users — security notification callback requires
+    # an existing admin to receive the notification when a new admin is created
+    sponsor = User.new(admin: true, firstname: 'A', lastname: 'H', mail: 'sponsor@example.com')
+    sponsor.login = 'settings_sponsor'
+    sponsor.save!
+
+    @user = User.new(admin: true, firstname: 'Admin', lastname: 'Test', mail: 'admin_test@example.com')
+    @user.login = 'settings_admin'
+    @user.save!
+
     User.stubs(:current).returns(@user)
     @request.session[:user_id] = @user.id
   end
