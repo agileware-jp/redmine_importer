@@ -1,3 +1,5 @@
+gem 'minitest', '~> 5.27' # Pin to 5.x — minitest 6.0 is incompatible with Rails 7.2.x (Redmine #43609)
+
 group :test do
   dependencies.reject! { |i| i.name == 'nokogiri' } # Ensure Nokogiri have new version
 end
