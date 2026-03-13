@@ -8,8 +8,13 @@ class ImporterSettingsControllerTest < Redmine::ControllerTest
   tests SettingsController
 
   def setup
-    User.current = nil
-    @request.session[:user_id] = 1 # admin
+    @admin = User.new(admin: true,
+                      login: 'admin_settings_test',
+                      firstname: 'Admin',
+                      lastname: 'User',
+                      mail: 'admin_settings_test@example.com')
+    @admin.save!
+    User.stubs(:current).returns(@admin)
   end
 
   test 'should reject empty max_csv_rows' do
