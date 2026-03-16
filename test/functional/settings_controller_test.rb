@@ -7,6 +7,9 @@ class ImporterSettingsControllerTest < Redmine::ControllerTest
 
   tests SettingsController
 
+  fixtures :projects, :trackers, :issue_statuses, :issues,
+           :users, :email_addresses
+
   def setup
     @admin = User.new(admin: true,
                       login: 'admin_settings_test',
