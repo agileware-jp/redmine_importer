@@ -27,7 +27,7 @@
 <script type="text/javascript">
   $(document).ready(function() {
     $('#csv-upload-form').on('submit', function() {
-      $('#upload-button').prop('disabled', true);
+      $('#upload-button').prop('disabled', true).css({opacity: '0.65', cursor: 'not-allowed'});
     });
   });
 </script>
