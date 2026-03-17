@@ -8,18 +8,3 @@
                        id: 'max_csv_rows_input' %>
   <em class="info"><%= l(:text_max_csv_rows_info) %></em>
 </p>
-
-<script>
-$(document).ready(function() {
-  var input = document.getElementById('max_csv_rows_input');
-  var submit = input.closest('form').querySelector('input[type="submit"]');
-  function validate() {
-    var invalid = !/^[1-9]\d*$/.test(input.value);
-    submit.disabled = invalid;
-    submit.style.opacity = invalid ? '0.65' : '';
-    submit.style.cursor = invalid ? 'not-allowed' : '';
-  }
-  input.addEventListener('input', validate);
-  validate();
-});
-</script>
