@@ -16,7 +16,7 @@
 
 <h2><%= l(:label_match_columns) %></h2>
 
-<%= form_tag({:action => 'result'}, {:multipart => true}) do %>
+<%= form_tag({:action => 'result'}, {:multipart => true, :id => 'map_form'}) do %>
   <%= hidden_field_tag 'project_id', @project.id %>
   <%= hidden_field_tag 'import_timestamp', @import_timestamp %>
 
@@ -70,7 +70,7 @@
     <br/>
     <label>
       <%= check_box_tag "use_issue_id", true, false %>
-      Import using issue ids
+      <%= l(:label_importer_use_issue_id) %>
     </label>
     <br/>
     <label>
@@ -106,9 +106,17 @@
     <br/>
   </fieldset>
 
-  <%= submit_tag l(:button_submit) %>
+  <%= submit_tag l(:button_submit), :id => 'import-button' %>
   <br/>
 <% end %>
+
+<script type="text/javascript">
+  $(document).ready(function() {
+    $('#map_form').on('submit', function() {
+      $('#import-button').prop('disabled', true).css({opacity: '0.65', cursor: 'not-allowed'});
+    });
+  });
+</script>
 
 <hr/>
 

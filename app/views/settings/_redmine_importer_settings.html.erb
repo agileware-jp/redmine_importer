@@ -1,0 +1,10 @@
+<p>
+  <label><%= l(:label_max_csv_rows) %></label>
+  <%= number_field_tag 'settings[max_csv_rows]',
+                       @settings['max_csv_rows'],
+                       min: 1,
+                       step: 1,
+                       size: 10,
+                       id: 'max_csv_rows_input' %>
+  <em class="info"><%= l(:text_max_csv_rows_info) %></em>
+</p>

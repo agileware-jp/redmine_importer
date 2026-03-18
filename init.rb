@@ -1,12 +1,20 @@
 # frozen_string_literal: true
 
 require 'redmine'
+require_relative 'lib/redmine_importer/patches/settings_controller_patch'
+
+Rails.application.config.after_initialize do
+  SettingsController.prepend RedmineImporter::Patches::SettingsControllerPatch
+end
 
 Redmine::Plugin.register :redmine_importer do
   name 'Issue Importer'
   author 'Martin Liu / Leo Hourvitz / Stoyan Zhekov / Jérôme Bataille / Agileware Inc.'
   description 'Issue import plugin for Redmine.'
   version '2.0.1'
+
+  settings default: { 'max_csv_rows' => '5000' },
+           partial: 'settings/redmine_importer_settings'
 
   project_module :importer do
     permission :import, importer: :index
