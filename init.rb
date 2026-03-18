@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
 require 'redmine'
+require_relative 'lib/redmine_importer/patches/settings_controller_patch'
+
+Rails.application.config.after_initialize do
+  SettingsController.prepend RedmineImporter::Patches::SettingsControllerPatch
+end
 
 Redmine::Plugin.register :redmine_importer do
   name 'Issue Importer'
