@@ -32,7 +32,7 @@ pt-BR:
   option_ignore: "Ignorar"
   
   button_upload: "Enviar arquivo"
-  button_submit: "Enviar"
+  button_redmine_importer_submit: "Enviar"
   button_save_rules_and_submit: "Salvar regra de mapeamento e enviar"
 
   label_importer_use_issue_id: "Import using issue ids"
