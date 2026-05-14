@@ -32,7 +32,13 @@ class ImporterController < ApplicationController
     iip.col_sep = params[:splitter]
     iip.encoding = params[:encoding]
     iip.created = Time.new
-    iip.csv_data = params[:file].read unless params[:file].blank?
+    unless params[:file].blank?
+      raw_data = params[:file].read
+
+      validate_encoding_mismatch(raw_data, params[:encoding])
+      return if flash[:error].present?
+      iip.csv_data = raw_data
+    end
     iip.save
 
     # Put the timestamp in the params to detect
@@ -584,10 +590,22 @@ class ImporterController < ApplicationController
     flash[type] += "#{text}<br/>"
   end
 
+  def validate_encoding_mismatch(raw_data, encoding)
+    return if encoding == 'N'  # NKF auto-detect, skip validation
+
+    source_encoding = { 'U' => 'UTF-8', 'S' => 'Shift_JIS', 'EUC' => 'EUC-JP' }.fetch(encoding, 'UTF-8')
+    begin
+      raw_data.dup.force_encoding(source_encoding).encode('UTF-8')
+    rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+      flash[:error] = l(:error_encoding_mismatch)
+      redirect_to project_importer_path(project_id: @project)
+    end
+  end
+
   def validate_csv_data(csv_data)
     if csv_data.lines.to_a.size <= 1
       flash[:error] = l(:error_csv_no_data) +
-        '<br/><br/>Header :<br/>'.html_safe + csv_data
+        '<br/><br/>Header :<br/>'.html_safe + csv_data.encode('UTF-8', invalid: :replace, undef: :replace)
 
       redirect_to project_importer_path(project_id: @project)
 
@@ -639,12 +657,12 @@ class ImporterController < ApplicationController
 
       error_message = e.message +
                       '<br/><br/>Header :<br/>'.html_safe +
-                      csv_data_lines[0]
+                      csv_data_lines[0].to_s.encode('UTF-8', invalid: :replace, undef: :replace)
 
       # if there was an exception, probably happened on line after the last sampled.
       unless csv_data_lines.empty?
         error_message += '<br/><br/>Error on header or line :<br/>'.html_safe +
-                         csv_data_lines[@samples.size + 1]
+                         csv_data_lines[@samples.size + 1].to_s.encode('UTF-8', invalid: :replace, undef: :replace)
       end
 
       flash[:error] = error_message

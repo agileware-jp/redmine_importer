@@ -425,6 +425,53 @@ class ImporterControllerTest < ActionController::TestCase
     end
   end
 
+  test 'should redirect with error when encoding does not match file' do
+    # CSV including Shift-JIS bytes (not UTF-8)
+    sjis_csv = "id,件名\n1,テスト件名\n".encode('Shift_JIS')
+
+    file = Tempfile.new(['test', '.csv'])
+    file.binmode
+    file.write(sjis_csv)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'U'  # Incorrectly set to UTF-8
+    }
+
+    assert_redirected_to project_importer_path(project_id: @project.identifier)
+    assert flash[:error].present?, 'encoding mismatch error should be shown'
+    assert flash[:error].encoding == Encoding::UTF_8, 'flash must be UTF-8'
+  ensure
+    file.close
+    file.unlink
+  end
+
+  test 'should proceed normally when encoding matches file' do
+    utf8_csv = "#,Subject\n1,テスト件名\n"
+
+    file = Tempfile.new(['test', '.csv'])
+    file.write(utf8_csv)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'U'
+    }
+
+    assert_response :success
+    assert_nil flash[:error]
+  ensure
+    file.close
+    file.unlink
+  end
+
   protected
 
   def build_params(opts = {})

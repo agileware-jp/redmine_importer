@@ -53,6 +53,7 @@ en:
   error_issue_id_taken: "This issue id has already been taken."
   error_csv_no_data: "No data line in your CSV, check the encoding of the file"
   error_csv_missing_headers: "Column header missing: %{columns} / %{total}"
+  error_encoding_mismatch: "Encoding mismatch"
 
   warning_record_not_found: "Warning: When adding issue %{issue_num} below, the %{class_name} %{key} was not found"
   warning_invalid_value: "Warning: When adding issue %{issue_num} below, %{value} is not a valid value."

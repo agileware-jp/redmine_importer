@@ -24,6 +24,6 @@ class ImportInProgress < ActiveRecord::Base
                ""
              end
 
-    self.csv_data = NKF.nkf("#{encode} -w", self.csv_data)
+    self.csv_data = NKF.nkf("#{encode} -w", self.csv_data).encode('UTF-8', 'UTF-8', invalid: :replace, undef: :replace)
   end
 end
