@@ -7,6 +7,7 @@ class ImportInProgressTest < ActiveSupport::TestCase
                       firstname: 'Admin',
                       lastname: 'User',
                       mail: 'admin_settings_test@example.com')
+    Mailer.stubs(:deliver_security_notification)
     @admin.save!
     User.stubs(:current).returns(@admin)
   end
