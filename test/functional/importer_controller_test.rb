@@ -454,6 +454,7 @@ class ImporterControllerTest < ActionController::TestCase
     utf8_csv = "#,Subject\n1,テスト件名\n"
 
     file = Tempfile.new(['test', '.csv'])
+    file.binmode
     file.write(utf8_csv)
     file.rewind
 

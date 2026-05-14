@@ -593,7 +593,9 @@ class ImporterController < ApplicationController
   def validate_encoding_mismatch(raw_data, encoding)
     return if encoding == 'N'  # NKF auto-detect, skip validation
 
-    source_encoding = { 'U' => 'UTF-8', 'S' => 'Shift_JIS', 'EUC' => 'EUC-JP' }.fetch(encoding, 'UTF-8')
+    source_encoding = { 'U' => 'UTF-8', 'S' => 'Shift_JIS', 'EUC' => 'EUC-JP' }[encoding]
+    return if source_encoding.nil?
+
     begin
       raw_data.dup.force_encoding(source_encoding).encode('UTF-8')
     rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError

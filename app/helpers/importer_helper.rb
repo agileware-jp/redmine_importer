@@ -12,6 +12,6 @@ module ImporterHelper
   end
 
   def force_utf8(str)
-    str.to_s.encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+    str.unpack("U*").pack('U*')
   end
 end
