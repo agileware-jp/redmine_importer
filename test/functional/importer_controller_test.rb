@@ -550,6 +550,7 @@ class ImporterControllerTest < ActionController::TestCase
     csv_content = "id,,件名\n1,,テスト\n"
 
     file = Tempfile.new(['test', '.csv'])
+    file.binmode
     file.write(csv_content)
     file.rewind
 
