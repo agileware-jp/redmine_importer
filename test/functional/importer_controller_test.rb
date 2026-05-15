@@ -473,6 +473,30 @@ class ImporterControllerTest < ActionController::TestCase
     file.unlink
   end
 
+  test 'should redirect with error when CSV has missing header columns with non-ASCII content' do
+    # The second column is empty, causing a nil header, and also includes non-ASCII characters.
+    csv_content = "id,,件名\n1,,テスト\n"
+
+    file = Tempfile.new(['test', '.csv'])
+    file.write(csv_content)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'U'
+    }
+
+    assert_redirected_to project_importer_path(project_id: @project.identifier)
+    assert flash[:error].present?
+    assert_equal Encoding::UTF_8, flash[:error].encoding
+  ensure
+    file.close
+    file.unlink
+  end
+
   protected
 
   def build_params(opts = {})

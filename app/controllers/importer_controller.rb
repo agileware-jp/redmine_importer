@@ -685,7 +685,7 @@ class ImporterController < ApplicationController
 
     if missing_header_columns.present?
       flash[:error] = l(:error_csv_missing_headers, columns: missing_header_columns, total: @headers.size) +
-        '<br/><br/>Header :<br/>'.html_safe + iip.csv_data.lines.to_a[0]
+        '<br/><br/>Header :<br/>'.html_safe + iip.csv_data.lines.to_a[0].to_s.encode('UTF-8', invalid: :replace, undef: :replace)
 
       redirect_to project_importer_path(project_id: @project)
 
