@@ -32,7 +32,7 @@ class ImporterController < ApplicationController
     iip.col_sep = params[:splitter]
     iip.encoding = params[:encoding]
     iip.created = Time.new
-    unless params[:file].blank?
+    if params[:file].present?
       raw_data = params[:file].read
 
       validate_encoding_mismatch(raw_data, params[:encoding])
