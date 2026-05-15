@@ -425,6 +425,151 @@ class ImporterControllerTest < ActionController::TestCase
     end
   end
 
+  test 'should redirect with error when encoding does not match file' do
+    # CSV including Shift-JIS bytes (not UTF-8)
+    sjis_csv = "id,件名\n1,テスト件名\n".encode('Shift_JIS')
+
+    file = Tempfile.new(['test', '.csv'])
+    file.binmode
+    file.write(sjis_csv)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'U'  # Incorrectly set to UTF-8
+    }
+
+    assert_redirected_to project_importer_path(project_id: @project.identifier)
+    assert flash[:error].present?, 'encoding mismatch error should be shown'
+    assert flash[:error].encoding == Encoding::UTF_8, 'flash must be UTF-8'
+  ensure
+    file.close
+    file.unlink
+  end
+
+  test 'should redirect with error when EUC-JP file is uploaded with UTF-8 encoding' do
+    # Regression test: force_encoding('UTF-8').encode('UTF-8') was a no-op in Ruby
+    # (same-encoding optimization), so EUC-JP bytes were never validated.
+    euc_csv = "id,件名\n1,テスト件名\n".encode('EUC-JP')
+
+    file = Tempfile.new(['test', '.csv'])
+    file.binmode
+    file.write(euc_csv)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'U'  # Incorrectly set to UTF-8
+    }
+
+    assert_redirected_to project_importer_path(project_id: @project.identifier)
+    assert flash[:error].present?, 'encoding mismatch error should be shown'
+    assert_equal Encoding::UTF_8, flash[:error].encoding
+  ensure
+    file.close
+    file.unlink
+  end
+
+  test 'should proceed normally when encoding matches file' do
+    utf8_csv = "#,Subject\n1,テスト件名\n"
+
+    file = Tempfile.new(['test', '.csv'])
+    file.binmode
+    file.write(utf8_csv)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'U'
+    }
+
+    assert_response :success
+    assert_nil flash[:error]
+  ensure
+    file.close
+    file.unlink
+  end
+
+  test 'should proceed normally when EUC-JP encoding matches file' do
+    euc_csv = "#,Subject\n1,テスト件名\n".encode('EUC-JP')
+
+    file = Tempfile.new(['test', '.csv'])
+    file.binmode
+    file.write(euc_csv)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'EUC'
+    }
+
+    assert_response :success
+    assert_nil flash[:error]
+  ensure
+    file.close
+    file.unlink
+  end
+
+  test 'should proceed normally when Shift_JIS encoding matches file' do
+    sjis_csv = "#,Subject\n1,テスト件名\n".encode('Shift_JIS')
+
+    file = Tempfile.new(['test', '.csv'])
+    file.binmode
+    file.write(sjis_csv)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'S'
+    }
+
+    assert_response :success
+    assert_nil flash[:error]
+  ensure
+    file.close
+    file.unlink
+  end
+
+  test 'should redirect with error when CSV has missing header columns with non-ASCII content' do
+    # The second column is empty, causing a nil header, and also includes non-ASCII characters.
+    csv_content = "id,,件名\n1,,テスト\n"
+
+    file = Tempfile.new(['test', '.csv'])
+    file.binmode
+    file.write(csv_content)
+    file.rewind
+
+    post :match, params: {
+      project_id: @project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'U'
+    }
+
+    assert_redirected_to project_importer_path(project_id: @project.identifier)
+    assert flash[:error].present?
+    assert_equal Encoding::UTF_8, flash[:error].encoding
+  ensure
+    file.close
+    file.unlink
+  end
+
   protected
 
   def build_params(opts = {})

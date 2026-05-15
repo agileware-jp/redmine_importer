@@ -54,6 +54,7 @@ ja:
   error_issue_id_taken: "このチケットIDは既に使用されています。"
   error_csv_no_data: "CSVにデータ行がありません。ファイルのエンコーディングを確認してください。"
   error_csv_missing_headers: "列ヘッダーが不足しています: %{columns} / %{total}"
+  error_encoding_mismatch: "ファイルのエンコーディングが選択した文字コードと一致しません。正しい文字コードを選択して再度アップロードしてください。"
 
   warning_record_not_found: "警告: チケット %{issue_num} の追加時に、%{class_name} %{key} が見つかりませんでした。"
   warning_invalid_value: "警告: チケット %{issue_num} の追加時に、%{value} は有効な値ではありません。"
