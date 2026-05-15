@@ -596,9 +596,7 @@ class ImporterController < ApplicationController
     source_encoding = { 'U' => 'UTF-8', 'S' => 'Shift_JIS', 'EUC' => 'EUC-JP' }[encoding]
     return if source_encoding.nil?
 
-    begin
-      raw_data.dup.force_encoding(source_encoding).encode('UTF-8')
-    rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+    unless raw_data.dup.force_encoding(source_encoding).valid_encoding?
       flash[:error] = l(:error_encoding_mismatch)
       redirect_to project_importer_path(project_id: @project)
     end
