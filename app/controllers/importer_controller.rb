@@ -735,13 +735,23 @@ class ImporterController < ApplicationController
     end
   end
 
-  # Returns the id for the given user or raises RecordNotFound
-  # Implements a cache of users based on login name
+  # Returns the user matching the given keyword or raises RecordNotFound
+  # Matches by login, mail, firstname+lastname, or display name
+  # Implements a cache of users based on the keyword
   def user_for_login!(login)
+    return @user_by_login[login] if @user_by_login.key?(login)
+
     begin
-      unless @user_by_login.key?(login)
-        @user_by_login[login] = User.find_by_login!(login)
+      # Load all users once and cache them for the entire import session
+      @all_users ||= User.includes(:email_address).to_a
+
+      user = Principal.detect_by_keyword(@all_users, login)
+
+      if user.nil?
+        raise ActiveRecord::RecordNotFound
       end
+
+      @user_by_login[login] = user
     rescue ActiveRecord::RecordNotFound
       if params[:use_anonymous]
         @user_by_login[login] = User.anonymous
@@ -751,6 +761,7 @@ class ImporterController < ApplicationController
         raise
       end
     end
+
     @user_by_login[login]
   end
 
