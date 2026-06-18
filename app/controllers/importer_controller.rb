@@ -99,7 +99,6 @@ class ImporterController < ApplicationController
     send_emails = params[:send_emails]
     add_categories = params[:add_categories]
     add_versions = params[:add_versions]
-    use_issue_id = params[:use_issue_id].present? ? true : false
     ignore_non_exist = params[:ignore_non_exist]
 
     # which fields should we use? what maps to what?
@@ -228,7 +227,7 @@ class ImporterController < ApplicationController
 
         update_project_issues_stat(project)
         assign_issue_attrs(issue, category, fixed_version_id, assigned_to, status, row, priority, tracker)
-        handle_parent_issues(issue, row, ignore_non_exist, unique_attr)
+        handle_parent_issues(issue, row, ignore_non_exist, unique_attr, unique_field)
         handle_custom_fields(add_versions, issue, project, row)
         handle_watchers(issue, row, watchers)
       rescue RowFailed
@@ -253,6 +252,7 @@ class ImporterController < ApplicationController
 
       if issue_saved
         @issue_by_unique_attr[row[unique_field]] = issue if unique_field
+        @deferred_callbacks.execute(row[unique_field], issue) if unique_field
 
         if send_emails
           if update_issue
@@ -269,31 +269,43 @@ class ImporterController < ApplicationController
         end
 
         # Issue relations
-        begin
-          IssueRelation::TYPES.each_pair do |rtype, _rinfo|
-            next unless row[@attrs_map["issue_relation-#{rtype}"]]
+        IssueRelation::TYPES.each_pair do |rtype, _rinfo|
+          other_value = row[@attrs_map["issue_relation-#{rtype}"]]
+          next if other_value.blank?
 
-            other_issue = issue_for_unique_attr(unique_attr,
-                                                row[@attrs_map["issue_relation-#{rtype}"]],
-                                                row)
-            relations = issue.relations.select do |r|
+          begin
+            # When unique_attr is 'standard_field-id' and use_issue_id is false,
+            # use cache-based lookup to support deferred reference resolution.
+            if unique_attr == 'standard_field-id' && !use_issue_id
+              other_issue = @issue_by_unique_attr[other_value]
+              unless other_issue
+                # Target not in cache yet - register callback for deferred creation
+                @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
+                next
+              end
+            else
+              other_issue = issue_for_unique_attr(unique_attr, other_value, row)
+            end
+
+            already_related = issue.relations.any? do |r|
               (r.other_issue(issue).id == other_issue.id) \
                 && (r.relation_type_for(issue) == rtype)
             end
-            next unless relations.empty?
+            next if already_related
 
             relation = IssueRelation.new(issue_from: issue,
                                          issue_to: other_issue,
                                          relation_type: rtype)
-            relation.save
+            unless relation.save
+              @messages << "Warning: Failed to create relation: #{relation.errors.full_messages.join(', ')}"
+            end
+          rescue NoIssueForUniqueValue
+            # Register callback for deferred relation creation
+            # Target issue may appear later in CSV
+            @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
+          rescue MultipleIssuesForUniqueValue
+            @messages << "Warning: Multiple matches for relation target '#{other_value}'"
           end
-        rescue NoIssueForUniqueValue
-          if ignore_non_exist
-            @skip_count += 1
-            next
-          end
-        rescue MultipleIssuesForUniqueValue
-          break
         end
 
         journal
@@ -309,6 +321,9 @@ class ImporterController < ApplicationController
         end
       end
     end # do
+
+    # Warn about any unresolved deferred references
+    @deferred_callbacks.warn_unresolved
 
     unless @failed_issues.empty?
       @failed_issues = @failed_issues.sort
@@ -453,22 +468,31 @@ class ImporterController < ApplicationController
     @attrs_map.key?("standard_field-#{field}")
   end
 
-  def handle_parent_issues(issue, row, ignore_non_exist, unique_attr)
+  def handle_parent_issues(issue, row, ignore_non_exist, unique_attr, unique_field)
     return unless assignable?(:parent_issue)
 
     parent_value = fetch('standard_field-parent_issue', row)
-    issue.parent_issue_id = if parent_value.present?
-                              issue_for_unique_attr(unique_attr, parent_value, row).id
-                            end
-  rescue NoIssueForUniqueValue
-    if ignore_non_exist
-      @skip_count += 1
-    else
-      @failed_count += 1
-      @failed_issues[@failed_count] = row
-      @messages << l(:warning_parent_not_found, issue_num: @failed_count, value: parent_value)
-      raise RowFailed
+    return unless parent_value.present?
+
+    # When unique_attr is 'standard_field-id' and use_issue_id is false,
+    # the # column is used only for CSV-internal references.
+    # Use cache-based lookup to support deferred reference resolution.
+    if unique_attr == 'standard_field-id' && !use_issue_id
+      if cached_parent = @issue_by_unique_attr[parent_value]
+        issue.parent_issue_id = cached_parent.id
+      else
+        # Parent not in cache yet - register callback for deferred assignment
+        @deferred_callbacks.register(parent_value, :set_parent, row[unique_field])
+      end
+      return
     end
+
+    # Standard lookup via issue_for_unique_attr
+    issue.parent_issue_id = issue_for_unique_attr(unique_attr, parent_value, row).id
+  rescue NoIssueForUniqueValue
+    # Register callback for deferred parent assignment
+    # Parent issue may appear later in CSV
+    @deferred_callbacks.register(parent_value, :set_parent, row[unique_field])
   rescue MultipleIssuesForUniqueValue
     @failed_count += 1
     @failed_issues[@failed_count] = row
@@ -493,6 +517,11 @@ class ImporterController < ApplicationController
     @version_id_by_name = {}
     # Cache of CustomFieldEnumeration by name
     @enumeration_id_by_name = {}
+    # Deferred callbacks for resolving forward references in CSV
+    @deferred_callbacks = RedmineImporter::DeferredCallbacks.new(
+      issue_cache: @issue_by_unique_attr,
+      messages: @messages
+    )
   end
 
   def handle_watchers(issue, row, watchers)
@@ -570,6 +599,10 @@ class ImporterController < ApplicationController
   end
 
   private
+
+  def use_issue_id
+    params[:use_issue_id].present?
+  end
 
   def fetch(key, row)
     row[@attrs_map[key]]
@@ -698,7 +731,7 @@ class ImporterController < ApplicationController
       return @issue_by_unique_attr[attr_value]
     end
 
-    if unique_attr == 'standard_field-id'
+    if use_issue_id && unique_attr == 'standard_field-id'
       issues = [Issue.find_by_id(attr_value)].compact
     else
       # Use IssueQuery class Redmine >= 2.3.0
