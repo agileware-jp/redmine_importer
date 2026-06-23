@@ -5,6 +5,8 @@ require File.expand_path('../test_helper', __dir__)
 class ImporterControllerTest < ActionController::TestCase
   include ActiveJob::TestHelper
 
+  fixtures :users
+
   def setup
     ActionController::Base.allow_forgery_protection = false
     @project = Project.create! name: 'foo', identifier: 'importer_controller_test'
@@ -184,7 +186,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle issue relation' do
     other_issue = create_issue!(@project, @user, { subject: 'other_issue' })
     @iip.update!(csv_data: "#,Subject,Duplicated issue ID\n#{@issue.id},set other issue relation,#{other_issue.id}\n")
-    post :result, params: build_params(update_issue: 'true').tap { |params|
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1').tap { |params|
                             params[:fields_map]['Duplicated issue ID'] = "issue_relation-#{IssueRelation::TYPE_DUPLICATED}"
                           }
     assert_response :success
@@ -194,6 +196,85 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal other_issue, issue_relation.issue_from
     assert_equal IssueRelation::TYPE_DUPLICATES, issue_relation.relation_type
     assert_equal 1, @issue.relations_to.count
+  end
+
+  test 'should handle parent issue defined after child in CSV using # column as unique key' do
+    # CSV: Child issue (#=1, parent=2) comes before Parent issue (#=2)
+    # Uses sequential numbers in # column as internal CSV reference (not DB ID)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n1,Child Issue,Defect,New,Critical,2\n2,Parent Issue,Defect,New,Critical,\n")
+    post :result, params: {
+      import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: '#',
+      project_id: @project.id,
+      fields_map: {
+        '#' => 'standard_field-id',
+        'Subject' => 'standard_field-subject',
+        'Tracker' => 'standard_field-tracker',
+        'Status' => 'standard_field-status',
+        'Priority' => 'standard_field-priority',
+        'Parent' => 'standard_field-parent_issue'
+      }
+    }
+    assert_response :success
+    assert !response.body.include?('Warning'), "Unexpected warning in response"
+
+    child = Issue.find_by!(subject: 'Child Issue')
+    parent = Issue.find_by!(subject: 'Parent Issue')
+    assert_equal parent.id, child.parent_id
+  end
+
+  test 'should handle issue relation defined later in CSV with empty values skipped' do
+    # CSV: #=2 comes first and references #=1 which comes later (descending order)
+    # This matches Redmine export format where newer issues appear first
+    # #=1 has empty relation value which should be skipped without warning
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Related issue\n2,Issue Two,Defect,New,Critical,1\n1,Issue One,Defect,New,Critical,\"\"\n")
+    post :result, params: {
+      import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: '#',
+      project_id: @project.id,
+      fields_map: {
+        '#' => 'standard_field-id',
+        'Subject' => 'standard_field-subject',
+        'Tracker' => 'standard_field-tracker',
+        'Status' => 'standard_field-status',
+        'Priority' => 'standard_field-priority',
+        'Related issue' => "issue_relation-#{IssueRelation::TYPE_RELATES}"
+      }
+    }
+    assert_response :success
+    assert !response.body.include?('Warning'), "Unexpected warning: #{response.body}"
+
+    issue_one = Issue.find_by!(subject: 'Issue One')
+    issue_two = Issue.find_by!(subject: 'Issue Two')
+    # issue_two should have a relation to issue_one (deferred resolution worked)
+    assert_equal 1, issue_two.relations.count, "Expected issue_two to have 1 relation"
+    relation = issue_two.relations.first
+    assert_equal issue_one.id, relation.other_issue(issue_two).id
+  end
+
+  test 'should warn when deferred reference target is not found in CSV' do
+    # CSV: Child issue references parent "999" which doesn't exist in CSV
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n1,Orphan Issue,Defect,New,Critical,999\n")
+    post :result, params: {
+      import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: '#',
+      project_id: @project.id,
+      fields_map: {
+        '#' => 'standard_field-id',
+        'Subject' => 'standard_field-subject',
+        'Tracker' => 'standard_field-tracker',
+        'Status' => 'standard_field-status',
+        'Priority' => 'standard_field-priority',
+        'Parent' => 'standard_field-parent_issue'
+      }
+    }
+    assert_response :success
+    assert response.body.include?('Warning')
+    assert response.body.include?('999')
+    assert response.body.include?('never resolved')
+
+    orphan = Issue.find_by!(subject: 'Orphan Issue')
+    assert_nil orphan.parent_id
   end
 
   test 'should error when assigned_to is missing' do
@@ -250,6 +331,21 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.reload
     assert_equal 'barfooz', @issue.subject
     assert_nil @issue.assigned_to
+  end
+
+  test 'should match assigned_to by user display name' do
+    user = User.find_by_login('jsmith')
+    Member.create!(user: user, project: @project, roles: [@role])
+
+    @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,#{user.name}\n")
+    post :result, params: build_params(update_issue: 'true').tap { |params|
+                            params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
+                          }
+    assert_response :success
+    assert_not response.body.include?('Warning')
+    @issue.reload
+    assert_equal 'barfooz', @issue.subject
+    assert_equal user, @issue.assigned_to
   end
 
   test 'should not error when user type CF value is missing but use_anonymous is true' do
@@ -312,7 +408,7 @@ class ImporterControllerTest < ActionController::TestCase
     closed_status = IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
     parent = create_issue!(@project, @user, status: closed_status)
     @iip.update!(csv_data: "#,Parent\n#{@issue.id},#{parent.id}\n")
-    post :result, params: build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
     assert_response :success
     assert response.body.include?('Error')
     assert_nil @issue.reload.parent
@@ -325,7 +421,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert !@child.status.is_closed?
     IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
     @iip.update!(csv_data: "#,Status\n#{@issue.id},Closed\n")
-    post :result, params: build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
     assert_response :success
     assert response.body.include?('Error')
     assert !@issue.reload.status.is_closed?
@@ -336,7 +432,7 @@ class ImporterControllerTest < ActionController::TestCase
     new_issue = create_issue!(@project, @user, status: closed_status)
     @issue.reload.update!(status: closed_status, parent_id: new_issue.id)
     @iip.update!(csv_data: "#,Status\n#{@issue.id},New\n")
-    post :result, params: build_params(update_issue: 'true')
+    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
     assert_response :success
     assert response.body.include?('Error')
     assert @issue.reload.status.is_closed?
@@ -568,6 +664,49 @@ class ImporterControllerTest < ActionController::TestCase
   ensure
     file.close
     file.unlink
+  end
+
+  test 'should use id-based search when use_issue_id is true' do
+    # Create parent issue (id will be auto-generated)
+    parent = create_issue!(@project, @user, subject: 'Parent Issue')
+
+    # With use_issue_id=true, parent should be found by id
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n100,Child A,Defect,New,Critical,#{parent.id}\n")
+    post :result, params: build_params(use_issue_id: '1')
+    assert_response :success
+    assert !response.body.include?('Warning')
+
+    child_a = Issue.find(100)
+    assert_equal parent.id, child_a.parent_id
+  end
+
+  test 'should not use id-based search when use_issue_id is false' do
+    # Create parent issue (id will be auto-generated)
+    parent = create_issue!(@project, @user, subject: 'Parent Issue')
+
+    # With use_issue_id=false and unique_field='#' -> 'standard_field-id'
+    # Before fix: Would incorrectly use id-based search
+    # After fix: Uses query filter which should fail or behave differently
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n101,Child B,Defect,New,Critical,#{parent.id}\n")
+    post :result, params: build_params # use_issue_id defaults to false
+    assert_response :success
+
+    # After the fix, since 'standard_field-id' is not a valid IssueQuery filter,
+    # the parent lookup should fail and produce a warning or error
+    child_b = Issue.find_by(subject: 'Child B')
+
+    # The expected behavior after fix: either warning is shown, or parent is not set
+    # (depending on how IssueQuery handles invalid filters)
+    if child_b
+      # If issue was created, parent should not be set correctly
+      # because the query filter 'standard_field-id' is invalid
+      assert_nil child_b.parent_id,
+        'Parent should not be set when use_issue_id=false with standard_field-id as unique_attr'
+    else
+      # Issue creation failed, check for warning
+      assert response.body.include?('Warning'),
+        'Should show warning when using standard_field-id without use_issue_id=true'
+    end
   end
 
   protected
