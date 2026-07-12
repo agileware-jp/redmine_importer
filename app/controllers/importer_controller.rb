@@ -147,7 +147,7 @@ class ImporterController < ApplicationController
                 quote_char: iip.quote_char,
                 col_sep: iip.col_sep }
     CSV.new(iip.csv_data, **csv_opt).each do |row|
-      project = Project.find_by_name(fetch('standard_field-project', row))
+      project = @project_by_name[fetch('standard_field-project', row)]
       project ||= @project
 
       begin
@@ -163,17 +163,16 @@ class ImporterController < ApplicationController
 
         issue.id = fetch('standard_field-id', row) if use_issue_id
 
-        tracker = Tracker.find_by_name(fetch('standard_field-tracker', row))
-        status = IssueStatus.find_by_name(fetch('standard_field-status', row))
+        tracker = @tracker_by_name[fetch('standard_field-tracker', row)]
+        status = @status_by_name[fetch('standard_field-status', row)]
         author = if @attrs_map.key?('standard_field-author') && @attrs_map['standard_field-author']
                    user_for_login!(fetch('standard_field-author', row))
                  else
                    User.current
                  end
-        priority = Enumeration.find_by_name(fetch('standard_field-priority', row))
+        priority = @priority_by_name[fetch('standard_field-priority', row)]
         category_name = fetch('standard_field-category', row)
-        category = IssueCategory.find_by_project_id_and_name(project.id,
-                                                             category_name)
+        category = @category_by_project_and_name[[project.id, category_name]]
 
         if !category \
           && category_name && !category_name.empty? \
@@ -181,6 +180,9 @@ class ImporterController < ApplicationController
 
           category = project.issue_categories.build(name: category_name)
           category.save
+          # Cache the newly created category so later rows with the same
+          # name in this project reuse it instead of re-querying.
+          @category_by_project_and_name[[project.id, category_name]] = category
         end
 
         if category.blank? && fetch('standard_field-category', row).present?
@@ -522,6 +524,31 @@ class ImporterController < ApplicationController
       issue_cache: @issue_by_unique_attr,
       messages: @messages
     )
+
+    preload_reference_masters
+  end
+
+  # Bulk-load reference master records once and index them by name so the
+  # per-row lookups in #result don't fire an N+1 of find_by_* queries.
+  # Uses ||= to keep the first record per name, matching find_by_name's
+  # "first match" semantics (Enumeration is ordered by position via its
+  # default_scope; the others have effectively unique names).
+  def preload_reference_masters
+    @project_by_name = {}
+    Project.all.each { |p| @project_by_name[p.name] ||= p }
+
+    @tracker_by_name = {}
+    Tracker.all.each { |t| @tracker_by_name[t.name] ||= t }
+
+    @status_by_name = {}
+    IssueStatus.all.each { |s| @status_by_name[s.name] ||= s }
+
+    @priority_by_name = {}
+    Enumeration.all.each { |e| @priority_by_name[e.name] ||= e }
+
+    # Keyed by [project_id, name] to mirror find_by_project_id_and_name.
+    @category_by_project_and_name = {}
+    IssueCategory.all.each { |c| @category_by_project_and_name[[c.project_id, c.name]] ||= c }
   end
 
   def handle_watchers(issue, row, watchers)
