@@ -1,6 +1,14 @@
 # Pin minitest to 5.x if Redmine hasn't already — minitest 6.0 is incompatible with Rails 7.2.x (Redmine #43609)
 gem 'minitest', '< 6.0' unless dependencies.any? { |d| d.name == 'minitest' }
 
+# rubygems 4 で bundle install が失敗する件の対応
+# commonmarker 2.3.0 は rubygems ~> 3.4 を要求するため、rubygems 4 だと依存解決に失敗する。
+# rubygems 4 に対応した 2.8.2 に差し替える。
+if RUBY_VERSION >= '3.2'
+  dependencies.reject! { |i| i.name == 'commonmarker' }
+  gem 'commonmarker', '~> 2.8.2'
+end
+
 group :test do
   dependencies.reject! { |i| i.name == 'nokogiri' } # Ensure Nokogiri have new version
 end
