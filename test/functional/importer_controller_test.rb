@@ -158,6 +158,83 @@ class ImporterControllerTest < ActionController::TestCase
     assert issue_has_all_of_these_watchers?(@issue, [@user])
   end
 
+  test 'should create issue with assignable watcher' do
+    Issue.delete_all
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority,Watchers\nWatcher issue,Defect,New,Critical,bob\n")
+
+    post :result, params: watcher_import_params
+
+    assert_response :success
+    assert_equal 1, Issue.count
+    issue = Issue.first
+    assert_equal [@user], issue.watcher_users
+    assert_includes response.body, I18n.t(:label_result_notice, handle_count: 1, success_count: 1)
+  end
+
+  test 'should reject watcher who is not assignable to project' do
+    Issue.delete_all
+    User.create!(login: 'outsider',
+                 firstname: 'Out',
+                 lastname: 'Sider',
+                 mail: 'outsider@example.com')
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority,Watchers\nRejected watcher,Defect,New,Critical,outsider\n")
+
+    post :result, params: watcher_import_params
+
+    assert_response :success
+    assert_equal 0, Issue.count
+    assert_includes response.body, I18n.t(:label_result_failed, count: 1)
+    assert_includes response.body,
+                    I18n.t(:warning_watcher_not_found, issue_num: 1, login: 'outsider')
+  end
+
+  test 'should reject project member who cannot view issue' do
+    Issue.delete_all
+    role = Role.create!(name: 'NO ISSUE VIEW')
+    hidden_user = User.create!(login: 'hidden',
+                               firstname: 'Hidden',
+                               lastname: 'User',
+                               mail: 'hidden@example.com')
+    Member.create!(user: hidden_user, project: @project, roles: [role])
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority,Watchers\nHidden watcher,Defect,New,Critical,hidden\n")
+
+    post :result, params: watcher_import_params
+
+    assert_response :success
+    assert_equal 0, Issue.count
+    assert_includes response.body, I18n.t(:label_result_failed, count: 1)
+    assert_includes response.body,
+                    I18n.t(:warning_watcher_not_found, issue_num: 1, login: 'hidden')
+  end
+
+  test 'should create issue when watchers column is ignored' do
+    Issue.delete_all
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority,Watchers\nIgnored watcher,Defect,New,Critical,missing\n")
+
+    post :result, params: watcher_import_params(map_watchers: false)
+
+    assert_response :success
+    assert_equal 1, Issue.count
+    assert_empty Issue.first.watcher_users
+    assert_includes response.body, I18n.t(:label_result_notice, handle_count: 1, success_count: 1)
+  end
+
+  test 'should report NoMethodError as a row failure' do
+    Issue.delete_all
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority\nBroken row,Defect,New,Critical\n")
+    Issue.any_instance.stubs(:save).raises(
+      NoMethodError,
+      'undefined method during row import'
+    )
+
+    post :result, params: watcher_import_params(map_watchers: false)
+
+    assert_response :success
+    assert_equal 0, Issue.count
+    assert_includes response.body, I18n.t(:label_result_failed, count: 1)
+    assert_includes response.body, 'undefined method during row import'
+  end
+
   test 'should handle key value list value' do
     Mailer.expects(:deliver_issue_add).never
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
@@ -730,6 +807,23 @@ class ImporterControllerTest < ActionController::TestCase
         'Area' => 'custom_field-Area'
       }
     )
+  end
+
+  def watcher_import_params(map_watchers: true)
+    fields_map = {
+      'Subject' => 'standard_field-subject',
+      'Tracker' => 'standard_field-tracker',
+      'Status' => 'standard_field-status',
+      'Priority' => 'standard_field-priority'
+    }
+    fields_map['Watchers'] = 'standard_field-watchers' if map_watchers
+
+    {
+      import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: '',
+      project_id: @project.identifier,
+      fields_map: fields_map
+    }
   end
 
   def issue_has_all_these_multival_versions?(issue, version_names)

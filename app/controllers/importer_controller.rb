@@ -239,6 +239,9 @@ class ImporterController < ApplicationController
       rescue ArgumentError
         log_failure(row, l(:warning_invalid_value, issue_num: @failed_count + 1, value: @error_value))
         next
+      rescue NoMethodError => e
+        log_no_method_failure(row, e)
+        next
       end
 
       issue.singleton_class.include RedmineImporter::Concerns::ValidateStatus
@@ -248,6 +251,9 @@ class ImporterController < ApplicationController
       rescue ActiveRecord::RecordNotUnique
         issue_saved = false
         @messages << l(:error_issue_id_taken)
+      rescue NoMethodError => e
+        log_no_method_failure(row, e)
+        next
       end
 
       if issue_saved
@@ -529,15 +535,17 @@ class ImporterController < ApplicationController
 
     watcher_failed_count = 0
     if watchers
-      addable_watcher_users = issue.addable_watcher_users
+      assignable_watcher_users = issue.project.principals.assignable_watchers
       watchers.split(',').each do |watcher|
         begin
           watcher_user = user_for_login!(watcher)
           next if issue.watcher_users.include?(watcher_user)
 
-          if addable_watcher_users.include?(watcher_user)
-            issue.add_watcher(watcher_user)
+          unless assignable_watcher_users.include?(watcher_user) && issue.valid_watcher?(watcher_user)
+            raise ActiveRecord::RecordNotFound
           end
+
+          issue.add_watcher(watcher_user)
         rescue ActiveRecord::RecordNotFound
           if watcher_failed_count == 0
             @failed_count += 1
@@ -612,6 +620,11 @@ class ImporterController < ApplicationController
     @failed_count += 1
     @failed_issues[@failed_count] = row
     @messages << msg
+  end
+
+  def log_no_method_failure(row, error)
+    log_failure(row, l(:warning_validation_errors, issue_num: @failed_count + 1))
+    @messages << l(:warning_attr_error, attr: error.class.name, message: error.message)
   end
 
   def find_project
