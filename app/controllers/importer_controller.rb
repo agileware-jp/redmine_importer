@@ -529,13 +529,12 @@ class ImporterController < ApplicationController
 
     watcher_failed_count = 0
     if watchers
-      addable_watcher_users = issue.addable_watcher_users
       watchers.split(',').each do |watcher|
         begin
           watcher_user = user_for_login!(watcher)
           next if issue.watcher_users.include?(watcher_user)
 
-          if addable_watcher_users.include?(watcher_user)
+          if issue.valid_watcher?(watcher_user)
             issue.add_watcher(watcher_user)
           end
         rescue ActiveRecord::RecordNotFound
