@@ -5,9 +5,26 @@ class ImportInProgress < ActiveRecord::Base
 
   before_save :encode_csv_data
 
+  # Batch-import state persisted between run requests, stored as JSON in the
+  # `settings` text column (mirrors Redmine core's Import#settings).
+  def import_settings
+    @import_settings ||= settings.blank? ? {} : JSON.parse(settings)
+  end
+
+  def import_settings=(hash)
+    @import_settings = hash
+    self.settings = JSON.generate(hash)
+  end
+
+  def save_import_settings!
+    self.settings = JSON.generate(import_settings)
+    save!
+  end
+
   private
   def encode_csv_data
     return if self.csv_data.blank?
+    return unless will_save_change_to_csv_data?
 
     self.csv_data = self.csv_data
     # 入力文字コード
