@@ -26,6 +26,7 @@ zh:
   label_rule_name: "输入规则名称"
  
   label_import_result: "导入结果"
+  label_importer_progress: "正在导入..."
   label_result_notice: "处理了{{handle_count}}个问题。{{success_count}}个问题被成功导入。"
   label_result_projects: "受影响的项目:"
   label_result_issues: "{{count}} 个问题"

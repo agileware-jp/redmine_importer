@@ -26,6 +26,7 @@ ja:
   label_rule_name: "ルール名を入力:"
 
   label_import_result: "インポート結果"
+  label_importer_progress: "インポート実行中..."
   label_result_notice: "%{handle_count} 行が処理されました。%{success_count} 行が正しく追加されました。"
   label_result_projects: "対象となったプロジェクト:"
   label_result_issues: "%{count} 行"

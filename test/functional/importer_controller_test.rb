@@ -27,7 +27,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle multiple values for versions' do
     assert issue_has_none_of_these_multival_versions?(@issue,
                                                       %w[Admin 2013-09-25])
-    post :result, params: build_params(update_issue: 'true')
+    run_import_to_completion(build_params(update_issue: 'true'))
     assert_response :success
     @issue.reload
     assert issue_has_all_these_multival_versions?(@issue, %w[Admin 2013-09-25])
@@ -35,7 +35,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should handle multiple values' do
     assert issue_has_none_of_these_multifield_vals?(@issue, %w[tag1 tag2])
-    post :result, params: build_params(update_issue: 'true')
+    run_import_to_completion(build_params(update_issue: 'true'))
     assert_response :success
     @issue.reload
     assert issue_has_all_these_multifield_vals?(@issue, %w[tag1 tag2])
@@ -43,7 +43,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should handle single-value fields' do
     assert_equal 'foobar', @issue.subject
-    post :result, params: build_params(update_issue: 'true')
+    run_import_to_completion(build_params(update_issue: 'true'))
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
@@ -113,7 +113,7 @@ class ImporterControllerTest < ActionController::TestCase
     Mailer.expects(:deliver_issue_add).never
     Issue.delete_all
     assert_equal 0, Issue.count
-    post :result, params: build_params
+    run_import_to_completion(build_params)
     assert_response :success
     assert_equal 1, Issue.count
     issue = Issue.first
@@ -124,7 +124,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal 'foobar', @issue.subject
     Mailer.expects(:deliver_issue_edit)
 
-    post :result, params: build_params(update_issue: 'true', send_emails: 'true')
+    run_import_to_completion(build_params(update_issue: 'true', send_emails: 'true'))
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
@@ -135,7 +135,7 @@ class ImporterControllerTest < ActionController::TestCase
     Mailer.expects(:deliver_issue_add)
 
     assert_equal 0, Issue.where(subject: 'barfooz').count
-    post :result, params: build_params(send_emails: 'true')
+    run_import_to_completion(build_params(send_emails: 'true'))
     assert_response :success
     assert_equal 1, Issue.where(subject: 'barfooz').count
   end
@@ -144,7 +144,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal 'foobar', @issue.subject
     Mailer.expects(:deliver_issue_edit).never
 
-    post :result, params: build_params(update_issue: 'true')
+    run_import_to_completion(build_params(update_issue: 'true'))
     assert_response :success
     @issue.reload
     assert_equal 'barfooz', @issue.subject
@@ -152,7 +152,7 @@ class ImporterControllerTest < ActionController::TestCase
 
   test 'should add watchers' do
     assert issue_has_none_of_these_watchers?(@issue, [@user])
-    post :result, params: build_params(update_issue: 'true')
+    run_import_to_completion(build_params(update_issue: 'true'))
     assert_response :success
     @issue.reload
     assert issue_has_all_of_these_watchers?(@issue, [@user])
@@ -163,7 +163,7 @@ class ImporterControllerTest < ActionController::TestCase
     IssueCustomField.where(name: 'Area').each { |icf| icf.update(multiple: false) }
     @iip.destroy
     @iip = create_iip!('KeyValueList', @user, @project)
-    post :result, params: build_params
+    run_import_to_completion(build_params)
     assert_response :success
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
@@ -174,7 +174,7 @@ class ImporterControllerTest < ActionController::TestCase
     Mailer.expects(:deliver_issue_add).never
     @iip.destroy
     @iip = create_iip!('KeyValueListMultiple', @user, @project)
-    post :result, params: build_params
+    run_import_to_completion(build_params)
     assert_response :success
     assert keyval_vals_for(Issue.find_by!(subject: 'パンケーキ')) == ['Tokyo']
     assert keyval_vals_for(Issue.find_by!(subject: 'たこ焼き')) == ['Osaka']
@@ -186,9 +186,9 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should handle issue relation' do
     other_issue = create_issue!(@project, @user, { subject: 'other_issue' })
     @iip.update!(csv_data: "#,Subject,Duplicated issue ID\n#{@issue.id},set other issue relation,#{other_issue.id}\n")
-    post :result, params: build_params(update_issue: 'true', use_issue_id: '1').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true', use_issue_id: '1').tap { |params|
                             params[:fields_map]['Duplicated issue ID'] = "issue_relation-#{IssueRelation::TYPE_DUPLICATED}"
-                          }
+                          })
     assert_response :success
     @issue.reload
     assert_equal 'set other issue relation', @issue.subject
@@ -202,7 +202,7 @@ class ImporterControllerTest < ActionController::TestCase
     # CSV: Child issue (#=1, parent=2) comes before Parent issue (#=2)
     # Uses sequential numbers in # column as internal CSV reference (not DB ID)
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n1,Child Issue,Defect,New,Critical,2\n2,Parent Issue,Defect,New,Critical,\n")
-    post :result, params: {
+    run_import_to_completion({
       import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
       unique_field: '#',
       project_id: @project.id,
@@ -214,7 +214,7 @@ class ImporterControllerTest < ActionController::TestCase
         'Priority' => 'standard_field-priority',
         'Parent' => 'standard_field-parent_issue'
       }
-    }
+    })
     assert_response :success
     assert !response.body.include?('Warning'), "Unexpected warning in response"
 
@@ -228,7 +228,7 @@ class ImporterControllerTest < ActionController::TestCase
     # This matches Redmine export format where newer issues appear first
     # #=1 has empty relation value which should be skipped without warning
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Related issue\n2,Issue Two,Defect,New,Critical,1\n1,Issue One,Defect,New,Critical,\"\"\n")
-    post :result, params: {
+    run_import_to_completion({
       import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
       unique_field: '#',
       project_id: @project.id,
@@ -240,7 +240,7 @@ class ImporterControllerTest < ActionController::TestCase
         'Priority' => 'standard_field-priority',
         'Related issue' => "issue_relation-#{IssueRelation::TYPE_RELATES}"
       }
-    }
+    })
     assert_response :success
     assert !response.body.include?('Warning'), "Unexpected warning: #{response.body}"
 
@@ -255,7 +255,7 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should warn when deferred reference target is not found in CSV' do
     # CSV: Child issue references parent "999" which doesn't exist in CSV
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n1,Orphan Issue,Defect,New,Critical,999\n")
-    post :result, params: {
+    run_import_to_completion({
       import_timestamp: @iip.created.strftime('%Y-%m-%d %H:%M:%S'),
       unique_field: '#',
       project_id: @project.id,
@@ -267,7 +267,7 @@ class ImporterControllerTest < ActionController::TestCase
         'Priority' => 'standard_field-priority',
         'Parent' => 'standard_field-parent_issue'
       }
-    }
+    })
     assert_response :success
     assert response.body.include?('Warning')
     assert response.body.include?('999')
@@ -280,9 +280,9 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should error when assigned_to is missing' do
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
     @issue.reload.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true').tap { |params|
                             params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
-                          }
+                          })
     assert_response :success
     assert response.body.include?('Warning')
     @issue.reload
@@ -293,9 +293,9 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should unset assigned_to when assigned_to user is not assignable' do
     User.create!(login: 'john', firstname: 'John', lastname: 'Doe', mail: 'john.doe@example.com')
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,john\n")
-    post :result, params: build_params(update_issue: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true').tap { |params|
                             params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
-                          }
+                          })
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -310,9 +310,9 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
     @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true').tap { |params|
                             params[:fields_map]['assigned_by'] = 'standard_field-assigned_by'
-                          }
+                          })
     assert_response :success
     assert response.body.include?('Warning')
     @issue.reload
@@ -323,9 +323,9 @@ class ImporterControllerTest < ActionController::TestCase
   test 'should not error when assigned_to is missing but use_anonymous is true' do
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,JohnDoe\n")
     @issue.reload.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true', use_anonymous: 'true').tap { |params|
                             params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
-                          }
+                          })
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -338,9 +338,9 @@ class ImporterControllerTest < ActionController::TestCase
     Member.create!(user: user, project: @project, roles: [@role])
 
     @iip.update!(csv_data: "#,Subject,assigned_to\n#{@issue.id},barfooz,#{user.name}\n")
-    post :result, params: build_params(update_issue: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true').tap { |params|
                             params[:fields_map]['assigned_to'] = 'standard_field-assigned_to'
-                          }
+                          })
     assert_response :success
     assert_not response.body.include?('Warning')
     @issue.reload
@@ -355,9 +355,9 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
     @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,JeanDoe\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true', use_anonymous: 'true').tap { |params|
                             params[:fields_map]['assigned_by'] = 'custom_field-assigned_by'
-                          }
+                          })
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -373,9 +373,9 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == assigned_by_field }.value = @user
     @iip.update!(csv_data: "#,Subject,assigned_by\n#{@issue.id},barfooz,john\n")
     @issue.update!(assigned_to: @user)
-    post :result, params: build_params(update_issue: 'true', use_anonymous: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true', use_anonymous: 'true').tap { |params|
                             params[:fields_map]['assigned_by'] = 'custom_field-assigned_by'
-                          }
+                          })
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -390,7 +390,7 @@ class ImporterControllerTest < ActionController::TestCase
     ActiveRecord::Base.connection.set_pk_sequence!('issues', 4422)
 
     @iip.update!(csv_data: "#,Subject,Tracker,Priority\n4423,test,Defect,Critical\n")
-    post :result, params: build_params(use_issue_id: '1')
+    run_import_to_completion(build_params(use_issue_id: '1'))
     assert_response :success
     assert !response.body.include?('Warning')
 
@@ -408,7 +408,7 @@ class ImporterControllerTest < ActionController::TestCase
     closed_status = IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
     parent = create_issue!(@project, @user, status: closed_status)
     @iip.update!(csv_data: "#,Parent\n#{@issue.id},#{parent.id}\n")
-    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
+    run_import_to_completion(build_params(update_issue: 'true', use_issue_id: '1'))
     assert_response :success
     assert response.body.include?('Error')
     assert_nil @issue.reload.parent
@@ -421,7 +421,7 @@ class ImporterControllerTest < ActionController::TestCase
     assert !@child.status.is_closed?
     IssueStatus.find_or_create_by!(name: 'Closed', is_closed: true)
     @iip.update!(csv_data: "#,Status\n#{@issue.id},Closed\n")
-    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
+    run_import_to_completion(build_params(update_issue: 'true', use_issue_id: '1'))
     assert_response :success
     assert response.body.include?('Error')
     assert !@issue.reload.status.is_closed?
@@ -432,7 +432,7 @@ class ImporterControllerTest < ActionController::TestCase
     new_issue = create_issue!(@project, @user, status: closed_status)
     @issue.reload.update!(status: closed_status, parent_id: new_issue.id)
     @iip.update!(csv_data: "#,Status\n#{@issue.id},New\n")
-    post :result, params: build_params(update_issue: 'true', use_issue_id: '1')
+    run_import_to_completion(build_params(update_issue: 'true', use_issue_id: '1'))
     assert_response :success
     assert response.body.include?('Error')
     assert @issue.reload.status.is_closed?
@@ -445,10 +445,10 @@ class ImporterControllerTest < ActionController::TestCase
     @tracker.custom_fields << due_date_field
     Issue.delete_all
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,StartDate,DueDate\n1,Task with dates,Defect,New,Critical,2023-05-15,2023-06-30\n")
-    post :result, params: build_params.tap { |params|
+    run_import_to_completion(build_params.tap { |params|
       params[:fields_map]['StartDate'] = 'custom_field-StartDate'
       params[:fields_map]['DueDate'] = 'custom_field-DueDate'
-    }
+    })
     assert_response :success
     assert !response.body.include?('Warning')
     assert_equal 1, Issue.count
@@ -465,9 +465,9 @@ class ImporterControllerTest < ActionController::TestCase
     @issue.custom_field_values.detect { |cfv| cfv.custom_field == start_date_field }.value = '2023-01-01'
     @issue.save!
     @iip.update!(csv_data: "#,Subject,StartDate\n#{@issue.id},Updated task,2023-12-25\n")
-    post :result, params: build_params(update_issue: 'true').tap { |params|
+    run_import_to_completion(build_params(update_issue: 'true').tap { |params|
       params[:fields_map]['StartDate'] = 'custom_field-StartDate'
-    }
+    })
     assert_response :success
     assert !response.body.include?('Warning')
     @issue.reload
@@ -480,9 +480,9 @@ class ImporterControllerTest < ActionController::TestCase
     @tracker.custom_fields << start_date_field
     Issue.delete_all
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,StartDate\n1,Task with blank date,Defect,New,Critical,\n")
-    post :result, params: build_params.tap { |params|
+    run_import_to_completion(build_params.tap { |params|
       params[:fields_map]['StartDate'] = 'custom_field-StartDate'
-    }
+    })
     assert_response :success
     assert !response.body.include?('Warning')
     assert_equal 1, Issue.count
@@ -497,9 +497,9 @@ class ImporterControllerTest < ActionController::TestCase
     @tracker.custom_fields << invalid_date_field
     Issue.delete_all
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,InvalidDate\n1,Task with invalid date,Defect,New,Critical,not-a-date\n")
-    post :result, params: build_params.tap { |params|
+    run_import_to_completion(build_params.tap { |params|
       params[:fields_map]['InvalidDate'] = 'custom_field-InvalidDate'
-    }
+    })
     assert_response :success
     assert response.body.include?('Warning')
     assert_equal 0, Issue.count
@@ -509,9 +509,9 @@ class ImporterControllerTest < ActionController::TestCase
     Issue.delete_all
     with_settings :date_format => '%Y-%m-%d' do
       @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Start date\n1,Task with different date format,Defect,New,Critical,15/05/2023\n")
-      post :result, params: build_params.tap { |params|
+      run_import_to_completion(build_params.tap { |params|
         params[:fields_map]['Start date'] = 'standard_field-start_date'
-      }
+      })
       assert_response :success
       assert !response.body.include?('Warning')
       assert_equal 1, Issue.count
@@ -672,7 +672,7 @@ class ImporterControllerTest < ActionController::TestCase
 
     # With use_issue_id=true, parent should be found by id
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n100,Child A,Defect,New,Critical,#{parent.id}\n")
-    post :result, params: build_params(use_issue_id: '1')
+    run_import_to_completion(build_params(use_issue_id: '1'))
     assert_response :success
     assert !response.body.include?('Warning')
 
@@ -688,7 +688,7 @@ class ImporterControllerTest < ActionController::TestCase
     # Before fix: Would incorrectly use id-based search
     # After fix: Uses query filter which should fail or behave differently
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n101,Child B,Defect,New,Critical,#{parent.id}\n")
-    post :result, params: build_params # use_issue_id defaults to false
+    run_import_to_completion(build_params) # use_issue_id defaults to false
     assert_response :success
 
     # After the fix, since 'standard_field-id' is not a valid IssueQuery filter,
@@ -709,7 +709,166 @@ class ImporterControllerTest < ActionController::TestCase
     end
   end
 
+  # --- Batched import (acceptance tests) ---
+  # The import must follow Redmine core's design: POST :result only stores the
+  # import settings and redirects to the run page; each POST :run processes at
+  # most max_items_per_request rows (or 10 seconds) and redirects back to run
+  # until every row is consumed, then redirects to the result page.
+
+  test 'should import in batches across multiple run requests and resume' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(2)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "1,Batch One,Defect,New,Critical\n" \
+                           "2,Batch Two,Defect,New,Critical\n" \
+                           "3,Batch Three,Defect,New,Critical\n")
+
+    assert_no_difference 'Issue.count' do
+      post :result, params: batch_run_params
+      assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    end
+
+    assert_difference 'Issue.count', 2 do
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    end
+
+    assert_difference 'Issue.count', 1 do
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    end
+
+    assert @iip.reload.finished, 'import should be marked as finished'
+
+    get :result, params: { project_id: @project.identifier }
+    assert_response :success
+    %w[Batch\ One Batch\ Two Batch\ Three].each do |subject|
+      assert Issue.exists?(subject: subject), "expected issue '#{subject}' to be created"
+    end
+  end
+
+  test 'should resolve parent defined in a later batch' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Parent\n" \
+                           "1,Batch Child,Defect,New,Critical,2\n" \
+                           "2,Batch Parent,Defect,New,Critical,\n")
+
+    run_import_to_completion(batch_run_params(with_parent: true))
+    assert_response :success
+    assert_not response.body.include?('Warning'), "unexpected warning: #{response.body}"
+
+    child = Issue.find_by!(subject: 'Batch Child')
+    parent = Issue.find_by!(subject: 'Batch Parent')
+    assert_equal parent.id, child.parent_id
+  end
+
+  test 'should record failed rows without retrying them and keep counters across batches' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Start date\n" \
+                           "1,Batch Good One,Defect,New,Critical,2026-08-01\n" \
+                           "2,Batch Broken,Defect,New,Critical,not-a-date\n" \
+                           "3,Batch Good Two,Defect,New,Critical,2026-08-02\n")
+    params = batch_run_params(extra_fields: { 'Start date' => 'standard_field-start_date' })
+
+    post :result, params: params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+
+    assert_difference 'Issue.count', 1 do
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    end
+
+    # The broken row must be recorded as failed and never retried
+    assert_no_difference 'Issue.count' do
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    end
+
+    assert_difference 'Issue.count', 1 do
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    end
+
+    get :result, params: { project_id: @project.identifier }
+    assert_response :success
+    assert response.body.include?('not-a-date'),
+           'failed row should be listed on the result page'
+    assert response.body.include?('Batch Broken'),
+           'failed row values should be listed on the result page'
+    assert_nil Issue.find_by(subject: 'Batch Broken')
+  end
+
+  test 'run page should show import progress' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "1,Batch One,Defect,New,Critical\n" \
+                           "2,Batch Two,Defect,New,Critical\n")
+
+    post :result, params: batch_run_params
+    get :run, params: { project_id: @project.identifier }
+    assert_response :success
+    assert_select '#import-progress'
+  end
+
+  test 'should reject re-submitting the mapping form for a started import' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "1,Batch One,Defect,New,Critical\n")
+    params = batch_run_params
+
+    run_import_to_completion(params)
+    assert_equal 1, Issue.where(subject: 'Batch One').count
+
+    # Re-submitting the same mapping form must not restart the import
+    assert_no_difference 'Issue.count' do
+      post :result, params: params
+      assert_response :success
+      assert flash[:error].present?
+    end
+  end
+
+  test 'run without import in progress should redirect to importer index' do
+    ImportInProgress.delete_all
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to project_importer_path(project_id: @project.identifier)
+  end
+
   protected
+
+  # Drives the batched import flow to completion: POST :result stores the
+  # settings, then POST :run is repeated until it redirects to the result
+  # page, which is finally fetched so callers can assert on the report.
+  # Falls through when POST :result did not start an import (validation
+  # errors keep the legacy render-with-flash behavior).
+  def run_import_to_completion(params)
+    post :result, params: params
+    return unless response.redirect_url&.include?('/importer/run')
+
+    40.times do
+      post :run, params: { project_id: params[:project_id] }
+      unless response.redirect_url&.include?('/importer/run')
+        get :result, params: { project_id: params[:project_id] }
+        return
+      end
+    end
+    flunk 'import did not finish within 40 run requests'
+  end
+
+  def batch_run_params(with_parent: false, extra_fields: {})
+    fields_map = {
+      '#' => 'standard_field-id',
+      'Subject' => 'standard_field-subject',
+      'Tracker' => 'standard_field-tracker',
+      'Status' => 'standard_field-status',
+      'Priority' => 'standard_field-priority'
+    }
+    fields_map['Parent'] = 'standard_field-parent_issue' if with_parent
+    fields_map.merge!(extra_fields)
+    {
+      import_timestamp: @iip.reload.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: '#',
+      project_id: @project.identifier,
+      fields_map: fields_map
+    }
+  end
 
   def build_params(opts = {})
     @iip.reload

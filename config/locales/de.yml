@@ -25,6 +25,7 @@ de:
     label_rule_name: "Name der Input-Regel"
     
     label_import_result: "Import Ergebnis"
+    label_importer_progress: "Import läuft..."
     label_result_notice: "%{handle_count} Tickets verarbeitet.  {{success_count}} Tickets erfolgreich importiert."
     label_result_projects: "Betroffene Projekte:"
     label_result_issues: "%{count} Tickets"

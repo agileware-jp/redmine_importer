@@ -25,6 +25,7 @@ ru:
   label_rule_name: "Input rule name"
 
   label_import_result: "Результат импорта"
+  label_importer_progress: "Выполняется импорт..."
   label_result_notice: "%{handle_count} задач(а) обработано.  %{success_count} задач(а) была успешно импортирована."
   label_result_projects: "Затронуто проектов:"
   label_result_issues: "%{count} задач(а)"

@@ -26,6 +26,7 @@ en:
   label_rule_name: "Input rule name"
 
   label_import_result: "Import Result"
+  label_importer_progress: "Import in progress..."
   label_result_notice: "%{handle_count} issues processed.  %{success_count} issues successfully imported."
   label_result_projects: "Affected projects:"
   label_result_issues: "%{count} issues"

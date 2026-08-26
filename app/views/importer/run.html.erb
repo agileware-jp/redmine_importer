@@ -1,0 +1,20 @@
+<% content_for :header_tags do %>
+  <%= stylesheet_link_tag 'importer', :plugin => 'redmine_importer' %>
+<% end %>
+
+<h2><%= l(:label_importer_progress) %></h2>
+
+<div id="import-details">
+  <div id="import-progress"><div id="progress-label"><%= @iip.position %> / <%= @iip.total_items.to_i %></div></div>
+</div>
+
+<%= javascript_tag do %>
+$(document).ready(function() {
+  $('#import-details').addClass('ajax-loading');
+  $('#import-progress').progressbar({value: <%= @iip.position %>, max: <%= @iip.total_items.to_i %>});
+  $.ajax({
+    url: '<%= project_importer_run_path(project_id: @project, format: 'js') %>',
+    type: 'post'
+  });
+});
+<% end %>

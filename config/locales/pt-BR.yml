@@ -25,6 +25,7 @@ pt-BR:
   label_rule_name: "Entre com o nome da regra"
   
   label_import_result: "Resultado da Importação"
+  label_importer_progress: "Importação em andamento..."
   label_result_notice: "{{handle_count}} tarefas processadas.  {{success_count}} tarefas importadas com sucesso."
   label_result_projects: "Projetos afetados:"
   label_result_issues: "{{count}} tarefas"

@@ -1,0 +1,11 @@
+$('#import-progress').progressbar({value: <%= @iip.position %>});
+$('#progress-label').text("<%= @iip.position %> / <%= @iip.total_items.to_i %>");
+
+<% if @iip.finished? %>
+window.location.href='<%= project_importer_result_path(project_id: @project) %>';
+<% else %>
+$.ajax({
+  url: '<%= project_importer_run_path(project_id: @project, format: 'js') %>',
+  type: 'post'
+});
+<% end %>
