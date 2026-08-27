@@ -761,6 +761,42 @@ class ImporterControllerTest < ActionController::TestCase
     assert_equal parent.id, child.parent_id
   end
 
+  test 'should split update mode import across multiple run requests' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(2)
+    second = create_issue!(@project, @user, { id: 70_386, subject: 'second' })
+    third = create_issue!(@project, @user, { id: 70_387, subject: 'third' })
+    @iip.update!(csv_data: "#,Subject\n" \
+                           "#{@issue.id},Updated One\n" \
+                           "#{second.id},Updated Two\n" \
+                           "#{third.id},Updated Three\n")
+    params = {
+      import_timestamp: @iip.reload.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: '#',
+      project_id: @project.identifier,
+      update_issue: 'true',
+      use_issue_id: '1',
+      fields_map: {
+        '#' => 'standard_field-id',
+        'Subject' => 'standard_field-subject'
+      }
+    }
+
+    assert_no_difference 'Issue.count' do
+      post :result, params: params
+      assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+      assert_equal 'Updated Two', second.reload.subject
+      assert_equal 'third', third.reload.subject, 'third row must not be processed in the first batch'
+
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+      assert_equal 'Updated Three', third.reload.subject
+    end
+    assert_equal 'Updated One', @issue.reload.subject
+  end
+
   test 'should record failed rows without retrying them and keep counters across batches' do
     ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority,Start date\n" \
