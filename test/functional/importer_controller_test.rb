@@ -845,6 +845,103 @@ class ImporterControllerTest < ActionController::TestCase
     assert_select '#import-progress'
   end
 
+  test 'should roll back the whole batch when a request fails mid-batch and not duplicate rows on retry' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "1,Batch One,Defect,New,Critical\n" \
+                           "2,Batch Two,Defect,New,Critical\n" \
+                           "3,Batch Three,Defect,New,Critical\n")
+    post :result, params: batch_run_params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+
+    # Fail on the third row of the first batch with an error the row loop
+    # does not rescue
+    ImporterController.any_instance.stubs(:update_project_issues_stat)
+                      .returns(nil).then.returns(nil).then.raises(RuntimeError, 'boom')
+    assert_no_difference 'Issue.count' do
+      assert_raises(RuntimeError) do
+        post :run, params: { project_id: @project.identifier }
+      end
+    end
+    ImporterController.any_instance.unstub(:update_project_issues_stat)
+
+    # The retry must import every row exactly once
+    assert_difference 'Issue.count', 3 do
+      post :run, params: { project_id: @project.identifier }
+      assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    end
+    %w[One Two Three].each do |n|
+      assert_equal 1, Issue.where(subject: "Batch #{n}").count
+    end
+  end
+
+  test 'should fail the row instead of crashing when a cached issue was deleted between batches' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
+    key_field = IssueCustomField.create!(name: 'Key', field_format: 'string',
+                                         is_filter: true, is_for_all: true)
+    @tracker.custom_fields << key_field
+    @tracker.save!
+    @iip.update!(csv_data: "Key,Subject,Tracker,Status,Priority,Parent\n" \
+                           "P1,Batch Parent,Defect,New,Critical,\n" \
+                           "C1,Batch Child,Defect,New,Critical,P1\n")
+    post :result, params: {
+      import_timestamp: @iip.reload.created.strftime('%Y-%m-%d %H:%M:%S'),
+      unique_field: 'Key',
+      project_id: @project.identifier,
+      fields_map: {
+        'Key' => 'custom_field-Key',
+        'Subject' => 'standard_field-subject',
+        'Tracker' => 'standard_field-tracker',
+        'Status' => 'standard_field-status',
+        'Priority' => 'standard_field-priority',
+        'Parent' => 'standard_field-parent_issue'
+      }
+    }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+
+    post :run, params: { project_id: @project.identifier }
+    Issue.find_by!(subject: 'Batch Parent').destroy
+
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+
+    get :result, params: { project_id: @project.identifier }
+    assert_response :success
+    child = Issue.find_by!(subject: 'Batch Child')
+    assert_nil child.parent_id
+  end
+
+  test 'should clean up stale imports only when the import finishes' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
+    stale = ImportInProgress.create!(user: User.find_by!(login: 'alice'),
+                                     created: Time.new - 4 * 24 * 60 * 60,
+                                     csv_data: "Subject\nstale\n",
+                                     encoding: 'U', col_sep: ',', quote_char: '"')
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "1,Batch One,Defect,New,Critical\n" \
+                           "2,Batch Two,Defect,New,Critical\n")
+
+    post :result, params: batch_run_params
+    post :run, params: { project_id: @project.identifier }
+    assert ImportInProgress.exists?(stale.id),
+           'an unfinished batch must not garbage-collect other imports'
+
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    assert_not ImportInProgress.exists?(stale.id),
+               'finishing the import must garbage-collect stale imports'
+  end
+
+  test 'should record a row failure when the issue id is already taken' do
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "#{@issue.id},Duplicate Id,Defect,New,Critical\n" \
+                           "70999,Batch Fresh,Defect,New,Critical\n")
+    run_import_to_completion(batch_run_params(extra: { use_issue_id: '1' }))
+    assert_response :success
+    assert_equal 'foobar', @issue.reload.subject, 'the existing issue must not be touched'
+    assert Issue.exists?(id: 70_999), 'rows after the conflicting one must still be imported'
+    assert response.body.include?(I18n.t(:error_issue_id_taken))
+  end
+
   test 'should reject re-submitting the mapping form for a started import' do
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
                            "1,Batch One,Defect,New,Critical\n")
@@ -888,7 +985,7 @@ class ImporterControllerTest < ActionController::TestCase
     flunk 'import did not finish within 40 run requests'
   end
 
-  def batch_run_params(with_parent: false, extra_fields: {})
+  def batch_run_params(with_parent: false, extra_fields: {}, extra: {})
     fields_map = {
       '#' => 'standard_field-id',
       'Subject' => 'standard_field-subject',
@@ -903,7 +1000,7 @@ class ImporterControllerTest < ActionController::TestCase
       unique_field: '#',
       project_id: @project.identifier,
       fields_map: fields_map
-    }
+    }.merge(extra)
   end
 
   def build_params(opts = {})

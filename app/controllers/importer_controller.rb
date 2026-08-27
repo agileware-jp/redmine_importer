@@ -439,24 +439,36 @@ class ImporterController < ApplicationController
       flash[:error] = l(:error_no_import_in_progress)
       return redirect_to project_importer_path(project_id: @project)
     end
-    return respond_after_batch if @iip.finished?
+    # Serialize concurrent run requests (a reloaded progress page or a second
+    # tab starts another polling chain): the row lock blocks the concurrent
+    # request until this batch commits, so it re-reads the advanced position
+    # and continues with the following rows instead of re-importing the same
+    # ones. The lock's transaction also makes the batch atomic — when a row
+    # fails with an unexpected error the whole batch rolls back, so a retry
+    # never duplicates issues.
+    @iip.with_lock do
+      unless @iip.finished?
+        restore_import_state(@iip)
+        interrupted = run_batch(@iip)
 
-    restore_import_state(@iip)
-    interrupted = run_batch(@iip)
+        unless interrupted
+          # Warn about any unresolved deferred references
+          @deferred_callbacks.warn_unresolved
 
-    unless interrupted
-      # Warn about any unresolved deferred references
-      @deferred_callbacks.warn_unresolved
+          if use_issue_id && ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
+            ActiveRecord::Base.connection.reset_pk_sequence!(Issue.table_name)
+          end
 
-      if use_issue_id && ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
-        ActiveRecord::Base.connection.reset_pk_sequence!(Issue.table_name)
+          # Garbage prevention: clean up imports abandoned for more than
+          # 3 days — only when an import finishes (not on the hot polling
+          # path), and never the import that just finished
+          ImportInProgress.where('created < ?', Time.new - 3 * 24 * 60 * 60)
+                          .where.not(id: @iip.id).delete_all
+        end
+
+        persist_import_state(@iip, finished: !interrupted)
       end
     end
-
-    persist_import_state(@iip, finished: !interrupted)
-
-    # Garbage prevention: clean up iips older than 3 days
-    ImportInProgress.where('created < ?', Time.new - 3 * 24 * 60 * 60).delete_all
 
     respond_after_batch
   end
@@ -643,7 +655,10 @@ class ImporterController < ApplicationController
     issue.singleton_class.include RedmineImporter::Concerns::ValidateStatus
 
     begin
-      issue_saved = issue.save
+      # The savepoint keeps the surrounding batch transaction usable when the
+      # INSERT itself fails (e.g. on the primary key with use_issue_id) —
+      # PostgreSQL aborts the whole transaction on any SQL error otherwise.
+      issue_saved = Issue.transaction(requires_new: true) { issue.save }
     rescue ActiveRecord::RecordNotUnique
       issue_saved = false
       @messages << l(:error_issue_id_taken)
@@ -958,7 +973,14 @@ class ImporterController < ApplicationController
   # Raises NoIssueForUniqueValue if not found or MultipleIssuesForUniqueValue
   def issue_for_unique_attr(unique_attr, attr_value, row_data)
     if @issue_by_unique_attr.key?(attr_value)
-      return @issue_by_unique_attr[attr_value]
+      cached = @issue_by_unique_attr[attr_value]
+      # The cache is authoritative for values this import created: a nil hit
+      # means the issue was deleted after an earlier batch imported it, so
+      # treat it as not found and let the row fail gracefully instead of
+      # crashing the whole batch request.
+      return cached if cached
+
+      raise NoIssueForUniqueValue, "Issue with #{unique_attr} of '#{attr_value}' was deleted"
     end
 
     if use_issue_id && unique_attr == 'standard_field-id'
