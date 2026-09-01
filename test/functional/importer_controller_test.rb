@@ -709,6 +709,77 @@ class ImporterControllerTest < ActionController::TestCase
     end
   end
 
+  test 'should update only the matching issue when unique field is Subject and multiple open issues exist' do
+    other1 = create_issue!(@project, @user, { subject: 'unrelated one' })
+    other2 = create_issue!(@project, @user, { subject: 'unrelated two' })
+    @iip.update!(csv_data: "Subject,Start date\nfoobar,2030-01-15\n")
+    post :result, params: build_params(update_issue: 'true', unique_field: 'Subject').tap { |params|
+                            params[:fields_map]['Start date'] = 'standard_field-start_date'
+                          }
+    assert_response :success
+    assert_equal Date.new(2030, 1, 15), @issue.reload.start_date
+    assert_not_equal Date.new(2030, 1, 15), other1.reload.start_date
+    assert_not_equal Date.new(2030, 1, 15), other2.reload.start_date
+  end
+
+  test 'should update only the issue with matching id when unique field is # and use_issue_id is off' do
+    other = create_issue!(@project, @user, { subject: 'unrelated' })
+    @iip.update!(csv_data: "#,Subject\n#{@issue.id},renamed by import\n")
+    post :result, params: build_params(update_issue: 'true')
+    assert_response :success
+    assert_equal 'renamed by import', @issue.reload.subject
+    assert_equal 'unrelated', other.reload.subject
+  end
+
+  test 'should not update an unrelated issue when the unique value matches nothing' do
+    @iip.update!(csv_data: "Subject,Start date\nno such subject,2030-01-15\n")
+    post :result, params: build_params(update_issue: 'true', unique_field: 'Subject').tap { |params|
+                            params[:fields_map]['Start date'] = 'standard_field-start_date'
+                          }
+    assert_response :success
+    assert_equal 'foobar', @issue.reload.subject
+    assert_not_equal Date.new(2030, 1, 15), @issue.start_date
+    assert response.body.include?('no match for the value')
+  end
+
+  test 'should resolve parent by subject when multiple open issues exist' do
+    create_issue!(@project, @user, { subject: 'unrelated one' })
+    @iip.update!(csv_data: "Subject,Tracker,Status,Priority,Parent\nchild by subject,Defect,New,Critical,foobar\n")
+    post :result, params: build_params(unique_field: 'Subject')
+    assert_response :success
+    child = Issue.find_by!(subject: 'child by subject')
+    assert_equal @issue.id, child.parent_id
+  end
+
+  test 'should update the issue found by custom field unique value' do
+    ref_field = IssueCustomField.create!(name: 'RefNo', field_format: 'string',
+                                         is_filter: true, projects: [@project],
+                                         trackers: [@tracker])
+    @issue.reload
+    @issue.custom_field_values = { ref_field.id => 'REF-1' }
+    @issue.save!
+    other = create_issue!(@project, @user, { subject: 'other with ref', tracker: @tracker }).reload
+    other.custom_field_values = { ref_field.id => 'REF-2' }
+    other.save!
+    @iip.update!(csv_data: "RefNo,Subject,Tracker\nREF-2,renamed via cf,Defect\n")
+    post :result, params: build_params(update_issue: 'true', unique_field: 'RefNo').tap { |params|
+                            params[:fields_map]['RefNo'] = 'custom_field-RefNo'
+                          }
+    assert_response :success
+    assert_equal 'renamed via cf', other.reload.subject
+    assert_equal 'foobar', @issue.reload.subject
+  end
+
+  test 'should fail the row with a clear error when unique field cannot be used for lookup' do
+    create_issue!(@project, @user, { subject: 'unrelated one' })
+    @iip.update!(csv_data: "Priority,Subject\nCritical,should not be applied\n")
+    post :result, params: build_params(update_issue: 'true', unique_field: 'Priority')
+    assert_response :success
+    assert_equal 'foobar', @issue.reload.subject
+    assert_nil Issue.find_by(subject: 'should not be applied')
+    assert response.body.include?('cannot be used to find existing issues')
+  end
+
   protected
 
   def build_params(opts = {})
