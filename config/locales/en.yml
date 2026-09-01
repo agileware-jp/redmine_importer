@@ -67,4 +67,5 @@ en:
   warning_watcher_not_found: "Warning: When trying to add watchers on issue %{issue_num} below, User %{login} was not found"
   warning_custom_field_invalid: "Warning: When trying to set custom field %{field_name} on issue %{issue_num} below, value %{value} was invalid"
   warning_duplicate_unique_value: "Warning: Unique field %{attr} with value '%{value}' in issue %{issue_num} has duplicate record"
+  warning_unique_field_not_supported: "Warning: The unique field %{attr} cannot be used to find existing issues. Use # (ID), Subject, or a custom field that is used as a filter."
 
