@@ -15,6 +15,7 @@ class ImporterControllerTest < ActionController::TestCase
     @tracker.save!
     @project.trackers << @tracker
     @project.save!
+    @project.enable_module!(:importer)
     @role = Role.create! name: 'ADMIN', permissions: %i[import view_issues]
     @user = create_user!(@role, @project)
     @iip = create_iip_for_multivalues!(@user, @project)
@@ -964,7 +965,120 @@ class ImporterControllerTest < ActionController::TestCase
     assert_redirected_to project_importer_path(project_id: @project.identifier)
   end
 
+  # --- Cross-project protection (refs #117121) ---
+  # An import started on one project must not be visible or resumable through
+  # another project's URL: the batch target project is derived from the URL,
+  # so a foreign URL would import the remaining rows into the wrong project.
+  # run/result must also be covered by the :import permission (project module
+  # enabled and role permission).
+
+  test 'should not show run progress via another project URL' do
+    @other_project = create_other_project!
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+
+    get :run, params: { project_id: @other_project.identifier }
+    assert_redirected_to project_importer_path(project_id: @other_project.identifier)
+    assert flash[:error].present?,
+           'a foreign project URL must not show the progress page'
+  end
+
+  test 'should not process batches via another project URL' do
+    @other_project = create_other_project!
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+
+    assert_no_difference 'Issue.count' do
+      post :run, params: { project_id: @other_project.identifier }
+    end
+    assert_redirected_to project_importer_path(project_id: @other_project.identifier)
+    assert_equal 0, @other_project.issues.count,
+                 'no row may be imported into the project from the URL'
+    assert_not @iip.reload.finished,
+               'the import must not advance through a foreign project URL'
+  end
+
+  test 'should not show the result of an import finished on another project' do
+    @other_project = create_other_project!
+    @iip.update!(csv_data: cross_project_csv)
+    run_import_to_completion(batch_run_params)
+    assert_response :success
+
+    get :result, params: { project_id: @other_project.identifier }
+    assert_response :success
+    assert flash[:error].present?,
+           'a foreign project URL must not show the import result'
+  end
+
+  test 'should not start an import whose mapping was submitted to another project' do
+    @other_project = create_other_project!
+    assert_no_difference 'Issue.count' do
+      post :result, params: batch_run_params.merge(project_id: @other_project.identifier)
+    end
+    assert_response :success
+    assert flash[:error].present?
+    assert @iip.reload.settings.blank?,
+           'the mapping must not be stored for a foreign project'
+  end
+
+  test 'should refuse the run page when the importer module is disabled on the project' do
+    @project.disable_module!(:importer)
+    get :run, params: { project_id: @project.identifier }
+    assert_response :forbidden
+  end
+
+  test 'should refuse to process a batch when the importer module is disabled on the project' do
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    @project.disable_module!(:importer)
+
+    assert_no_difference 'Issue.count' do
+      post :run, params: { project_id: @project.identifier }
+    end
+    assert_response :forbidden
+  end
+
+  test 'should refuse the result page when the importer module is disabled on the project' do
+    @project.disable_module!(:importer)
+    get :result, params: { project_id: @project.identifier }
+    assert_response :forbidden
+  end
+
+  test 'should refuse the run page for a user without the import permission' do
+    role = Role.create! name: 'NO_IMPORT', permissions: %i[view_issues]
+    user = User.new(firstname: 'No', lastname: 'Import', mail: 'no.import@example.com')
+    user.login = 'noimport'
+    membership = user.memberships.build(project: @project)
+    membership.roles << role
+    membership.principal = user
+    user.pref.auto_watch_on = nil if Redmine::VERSION.to_s.to_f >= 5.1
+    user.save!
+    User.stubs(:current).returns(user)
+
+    get :run, params: { project_id: @project.identifier }
+    assert_response :forbidden
+  end
+
   protected
+
+  # A second project the import was NOT started on, fully able to receive
+  # imported issues (importer module enabled, same tracker), so the
+  # cross-project tests fail loudly if rows leak into it.
+  def create_other_project!
+    project = Project.create! name: 'other', identifier: 'importer_other_project'
+    project.trackers << @tracker unless project.trackers.include?(@tracker)
+    project.save!
+    project.enable_module!(:importer)
+    project
+  end
+
+  def cross_project_csv
+    "#,Subject,Tracker,Status,Priority\n" \
+      "1,Cross One,Defect,New,Critical\n" \
+      "2,Cross Two,Defect,New,Critical\n" \
+      "3,Cross Three,Defect,New,Critical\n"
+  end
 
   # Drives the batched import flow to completion: POST :result stores the
   # settings, then POST :run is repeated until it redirects to the result
