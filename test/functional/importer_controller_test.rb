@@ -1228,9 +1228,10 @@ class ImporterControllerTest < ActionController::TestCase
     create_iip!('CustomFieldMultiValues', user, project)
   end
 
-  def create_iip!(filename, user, _project)
+  def create_iip!(filename, user, project)
     iip = ImportInProgress.new
     iip.user = user
+    iip.project = project
     iip.csv_data = get_csv(filename)
     # iip.created = DateTime.new(2001,2,3,4,5,6,'+7')
     iip.created = DateTime.now
