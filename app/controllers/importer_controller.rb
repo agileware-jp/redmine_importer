@@ -365,9 +365,20 @@ class ImporterController < ApplicationController
     end
     # A mapping form may only be submitted once per uploaded file (the legacy
     # implementation guaranteed this by deleting the iip after importing);
-    # re-submitting would restart the import and duplicate issues.
+    # re-submitting would restart the import and duplicate issues. The
+    # timestamp matched above, so this is the form of the import the user
+    # already started (typically the browser's back button from the progress
+    # page): send them back to that import instead of failing with the
+    # misleading "superseded" error — to the progress page while it is
+    # running, so polling resumes from the saved position, or to its report
+    # once it finished (#117120).
     if iip.settings.present?
-      flash[:error] = l(:error_import_superseded)
+      if iip.finished?
+        redirect_to project_importer_result_path(project_id: @project)
+      else
+        flash[:notice] = l(:notice_import_already_running)
+        redirect_to project_importer_run_path(project_id: @project)
+      end
       return
     end
 
