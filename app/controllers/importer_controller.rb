@@ -35,12 +35,12 @@ class ImporterController < ApplicationController
     end
 
     # Delete existing iip to ensure there can't be two iips for a user
-    ImportInProgress.where('user_id = ?', User.current.id).delete_all
-    # save import-in-progress data
-    iip = ImportInProgress.find_or_create_by(user_id: User.current.id)
-    # Remember the project the import was started on; run/result requests
-    # for any other project must not see or resume this import (#117121).
-    iip.project = @project
+    # within the same project; imports the user has in progress on other
+    # projects are independent and must not be discarded (#117121)
+    ImportInProgress.where(user_id: User.current.id, project_id: @project.id).delete_all
+    # save import-in-progress data, keyed by user and originating project;
+    # run/result requests for any other project must not see or resume it
+    iip = ImportInProgress.find_or_create_by(user_id: User.current.id, project_id: @project.id)
     iip.quote_char = params[:wrapper]
     iip.col_sep = params[:splitter]
     iip.encoding = params[:encoding]

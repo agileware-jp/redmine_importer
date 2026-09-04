@@ -1060,6 +1060,93 @@ class ImporterControllerTest < ActionController::TestCase
     assert_response :forbidden
   end
 
+  # --- Per-project isolation of match (refs #117121) ---
+  # Starting an import must only replace the user's previous import on the
+  # same project: an import the user has in progress on another project is
+  # independent and must not be discarded.
+
+  test 'should keep an import running on another project when a new one is matched' do
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    settings_before = @iip.reload.settings
+    assert settings_before.present?
+
+    @other_project = create_other_project!
+    post_match!(@other_project,
+                "#,Subject,Tracker,Status,Priority\n" \
+                "70011,Other One,Defect,New,Critical\n")
+    assert_response :success
+
+    assert ImportInProgress.exists?(@iip.id),
+           'match on another project must not delete the running import'
+    @iip.reload
+    assert_equal settings_before, @iip.settings,
+                 'the running import must keep its stored mapping'
+    assert_equal 2, ImportInProgress.where(user_id: @user.id).count,
+                 'each project keeps its own import in progress'
+
+    # The interrupted project can still finish its import afterwards
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    assert_equal 3, @project.issues.where('subject LIKE ?', 'Cross%').count
+  end
+
+  test 'should replace the previous import when matched again on the same project' do
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    assert @iip.reload.settings.present?
+
+    post_match!(@project,
+                "#,Subject,Tracker,Status,Priority\n" \
+                "70012,Fresh One,Defect,New,Critical\n")
+    assert_response :success
+
+    rows = ImportInProgress.where(user_id: @user.id, project_id: @project.id)
+    assert_equal 1, rows.count, 'the same project keeps a single import in progress'
+    assert_includes rows.first.csv_data, 'Fresh One'
+    assert rows.first.settings.blank?, 'a re-matched import starts from scratch'
+  end
+
+  test 'should run imports on two projects independently to completion' do
+    a_csv = +"#,Subject,Tracker,Status,Priority\n"
+    b_csv = +"#,Subject,Tracker,Status,Priority\n"
+    8.times do |i|
+      a_csv << "#{70_101 + i},A-#{i + 1},Defect,New,Critical\n"
+      b_csv << "#{70_201 + i},B-#{i + 1},Defect,New,Critical\n"
+    end
+    @iip.update!(csv_data: a_csv)
+    post :result, params: batch_run_params
+
+    @other_project = create_other_project!
+    other_iip = ImportInProgress.create!(user: @user, project: @other_project,
+                                         csv_data: b_csv, created: DateTime.now,
+                                         encoding: 'UTF-8', col_sep: ',', quote_char: '"')
+    post :result, params: batch_run_params.merge(
+      project_id: @other_project.identifier,
+      import_timestamp: other_iip.created.strftime('%Y-%m-%d %H:%M:%S')
+    )
+
+    # Alternate the polling between the two projects until both finish
+    # (each batch imports at most 5 rows, so each import needs two runs)
+    10.times do
+      break if @iip.reload.finished && other_iip.reload.finished
+
+      [@project, @other_project].each do |project|
+        post :run, params: { project_id: project.identifier }
+      end
+    end
+
+    assert @iip.reload.finished, 'the first import must run to completion'
+    assert other_iip.reload.finished, 'the second import must run to completion'
+    assert_equal 8, @project.issues.where('subject LIKE ?', 'A-%').count
+    assert_equal 8, @other_project.issues.where('subject LIKE ?', 'B-%').count
+    assert_equal 0, @project.issues.where('subject LIKE ?', 'B-%').count,
+                 'no row may leak into the other project'
+    assert_equal 0, @other_project.issues.where('subject LIKE ?', 'A-%').count,
+                 'no row may leak into the other project'
+  end
+
   protected
 
   # A second project the import was NOT started on, fully able to receive
@@ -1078,6 +1165,23 @@ class ImporterControllerTest < ActionController::TestCase
       "1,Cross One,Defect,New,Critical\n" \
       "2,Cross Two,Defect,New,Critical\n" \
       "3,Cross Three,Defect,New,Critical\n"
+  end
+
+  # Uploads csv_data to the project's match action, as the import form does.
+  def post_match!(project, csv_data)
+    file = Tempfile.new(['test', '.csv'])
+    file.write(csv_data)
+    file.rewind
+    post :match, params: {
+      project_id: project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'UTF-8'
+    }
+  ensure
+    file.close
+    file.unlink
   end
 
   # Drives the batched import flow to completion: POST :result stores the
