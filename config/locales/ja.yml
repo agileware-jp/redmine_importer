@@ -53,6 +53,7 @@ ja:
   error_no_import_in_progress: "現在進行中のインポートがありません。"
   error_import_superseded: "このインポートは別のインポートにより無効になりました。"
   notice_import_already_running: "実行中のインポートがあるため進捗画面を表示しています。残りの行は引き続き取り込まれます。"
+  notice_import_already_finished: "送信されたインポートは既に完了しているため、結果画面を表示しています。行が再度取り込まれることはありません。"
   error_must_map_id_column: "チケットIDを使用してインポートする場合、対応するIDの列を指定してください。"
   error_issue_id_taken: "このチケットIDは既に使用されています。"
   error_csv_no_data: "CSVにデータ行がありません。ファイルのエンコーディングを確認してください。"

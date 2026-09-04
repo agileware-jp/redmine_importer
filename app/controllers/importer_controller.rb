@@ -374,6 +374,7 @@ class ImporterController < ApplicationController
     # once it finished (#117120).
     if iip.settings.present?
       if iip.finished?
+        flash[:notice] = l(:notice_import_already_finished)
         redirect_to project_importer_result_path(project_id: @project)
       else
         flash[:notice] = l(:notice_import_already_running)

@@ -1001,6 +1001,8 @@ class ImporterControllerTest < ActionController::TestCase
     assert_redirected_to "/projects/#{@project.identifier}/importer/result"
     assert_nil flash[:error],
                'a resubmitted form of a finished import must not show an error'
+    assert_equal I18n.t(:notice_import_already_finished), flash[:notice],
+                 'the user must be told the shown report is not a fresh import'
   end
 
   test 'should reject a mapping form that was superseded by a newer upload' do
