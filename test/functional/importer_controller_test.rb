@@ -943,7 +943,49 @@ class ImporterControllerTest < ActionController::TestCase
     assert response.body.include?(I18n.t(:error_issue_id_taken))
   end
 
-  test 'should reject re-submitting the mapping form for a started import' do
+  # --- Mapping form resubmission (refs #117120) ---
+  # Pressing the browser's back button from the progress page and submitting
+  # the mapping form again must never restart the import (that would
+  # duplicate the already imported rows), but it must not cut the running
+  # import off with a misleading "superseded" error either: the user is sent
+  # back to the import they already started.
+
+  test 'should redirect a resubmitted mapping form to the progress page while the import is running' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "1,Resubmit One,Defect,New,Critical\n" \
+                           "2,Resubmit Two,Defect,New,Critical\n" \
+                           "3,Resubmit Three,Defect,New,Critical\n")
+    params = batch_run_params
+
+    post :result, params: params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    post :run, params: { project_id: @project.identifier }
+    assert_equal 1, @iip.reload.position
+
+    # Browser back + "Import" again resubmits the very same mapping form
+    assert_no_difference 'Issue.count' do
+      post :result, params: params
+    end
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    assert_nil flash[:error], 'a resubmitted form of a running import must not show an error'
+    assert_equal I18n.t(:notice_import_already_running), flash[:notice]
+    @iip.reload
+    assert_not @iip.finished, 'the running import must not be cut off'
+    assert_equal 1, @iip.position, 'the import progress must be preserved'
+
+    # The progress page's polling picks the import up where it left off
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    %w[One Two Three].each do |n|
+      assert_equal 1, Issue.where(subject: "Resubmit #{n}").count,
+                   "row 'Resubmit #{n}' must be imported exactly once"
+    end
+  end
+
+  test 'should redirect a resubmitted mapping form to the result page after the import finished' do
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
                            "1,Batch One,Defect,New,Critical\n")
     params = batch_run_params
@@ -951,12 +993,31 @@ class ImporterControllerTest < ActionController::TestCase
     run_import_to_completion(params)
     assert_equal 1, Issue.where(subject: 'Batch One').count
 
-    # Re-submitting the same mapping form must not restart the import
+    # Re-submitting the same mapping form must not restart the import; the
+    # user is shown the report of the import that already ran instead.
     assert_no_difference 'Issue.count' do
       post :result, params: params
-      assert_response :success
-      assert flash[:error].present?
     end
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    assert_nil flash[:error],
+               'a resubmitted form of a finished import must not show an error'
+    assert_equal I18n.t(:notice_import_already_finished), flash[:notice],
+                 'the user must be told the shown report is not a fresh import'
+  end
+
+  test 'should reject a mapping form that was superseded by a newer upload' do
+    params = batch_run_params # captures the current form timestamp
+
+    # Uploading a new file replaces the ImportInProgress record (see :match),
+    # so the old form's timestamp no longer matches: that form really was
+    # superseded by another import and must keep being rejected.
+    @iip.update!(created: @iip.created + 1.hour)
+
+    assert_no_difference 'Issue.count' do
+      post :result, params: params
+    end
+    assert_response :success
+    assert_equal I18n.t(:error_import_superseded), flash[:error]
   end
 
   test 'run without import in progress should redirect to importer index' do
