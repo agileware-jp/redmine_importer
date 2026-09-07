@@ -41,6 +41,7 @@ class ImportBenchmarkTest < ActionController::TestCase
     @tracker.save!
     @project.trackers << @tracker
     @project.save!
+    @project.enable_module!(:importer)
     IssuePriority.find_or_create_by!(name: 'Critical')
     @role = Role.create! name: 'BENCH', permissions: %i[import view_issues]
     @user = create_user!(@role, @project)
@@ -123,6 +124,7 @@ class ImportBenchmarkTest < ActionController::TestCase
     ImportInProgress.where(user_id: @user.id).delete_all
     iip = ImportInProgress.new
     iip.user = @user
+    iip.project = @project
     iip.csv_data = csv_data
     iip.created = DateTime.now
     iip.encoding = 'UTF-8'

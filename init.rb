@@ -17,7 +17,9 @@ Redmine::Plugin.register :redmine_importer do
            partial: 'settings/redmine_importer_settings'
 
   project_module :importer do
-    permission :import, importer: :index
+    # Every action must be declared here so that ImporterController's
+    # `authorize` filter can also protect the result/run pages (#117121).
+    permission :import, importer: %i[index match result run]
   end
   menu :project_menu,
        :importer,

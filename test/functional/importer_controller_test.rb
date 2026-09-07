@@ -15,6 +15,7 @@ class ImporterControllerTest < ActionController::TestCase
     @tracker.save!
     @project.trackers << @tracker
     @project.save!
+    @project.enable_module!(:importer)
     @role = Role.create! name: 'ADMIN', permissions: %i[import view_issues]
     @user = create_user!(@role, @project)
     @iip = create_iip_for_multivalues!(@user, @project)
@@ -942,7 +943,49 @@ class ImporterControllerTest < ActionController::TestCase
     assert response.body.include?(I18n.t(:error_issue_id_taken))
   end
 
-  test 'should reject re-submitting the mapping form for a started import' do
+  # --- Mapping form resubmission (refs #117120) ---
+  # Pressing the browser's back button from the progress page and submitting
+  # the mapping form again must never restart the import (that would
+  # duplicate the already imported rows), but it must not cut the running
+  # import off with a misleading "superseded" error either: the user is sent
+  # back to the import they already started.
+
+  test 'should redirect a resubmitted mapping form to the progress page while the import is running' do
+    ImporterController.any_instance.stubs(:max_items_per_request).returns(1)
+    @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
+                           "1,Resubmit One,Defect,New,Critical\n" \
+                           "2,Resubmit Two,Defect,New,Critical\n" \
+                           "3,Resubmit Three,Defect,New,Critical\n")
+    params = batch_run_params
+
+    post :result, params: params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    post :run, params: { project_id: @project.identifier }
+    assert_equal 1, @iip.reload.position
+
+    # Browser back + "Import" again resubmits the very same mapping form
+    assert_no_difference 'Issue.count' do
+      post :result, params: params
+    end
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    assert_nil flash[:error], 'a resubmitted form of a running import must not show an error'
+    assert_equal I18n.t(:notice_import_already_running), flash[:notice]
+    @iip.reload
+    assert_not @iip.finished, 'the running import must not be cut off'
+    assert_equal 1, @iip.position, 'the import progress must be preserved'
+
+    # The progress page's polling picks the import up where it left off
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    %w[One Two Three].each do |n|
+      assert_equal 1, Issue.where(subject: "Resubmit #{n}").count,
+                   "row 'Resubmit #{n}' must be imported exactly once"
+    end
+  end
+
+  test 'should redirect a resubmitted mapping form to the result page after the import finished' do
     @iip.update!(csv_data: "#,Subject,Tracker,Status,Priority\n" \
                            "1,Batch One,Defect,New,Critical\n")
     params = batch_run_params
@@ -950,12 +993,31 @@ class ImporterControllerTest < ActionController::TestCase
     run_import_to_completion(params)
     assert_equal 1, Issue.where(subject: 'Batch One').count
 
-    # Re-submitting the same mapping form must not restart the import
+    # Re-submitting the same mapping form must not restart the import; the
+    # user is shown the report of the import that already ran instead.
     assert_no_difference 'Issue.count' do
       post :result, params: params
-      assert_response :success
-      assert flash[:error].present?
     end
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    assert_nil flash[:error],
+               'a resubmitted form of a finished import must not show an error'
+    assert_equal I18n.t(:notice_import_already_finished), flash[:notice],
+                 'the user must be told the shown report is not a fresh import'
+  end
+
+  test 'should reject a mapping form that was superseded by a newer upload' do
+    params = batch_run_params # captures the current form timestamp
+
+    # Uploading a new file replaces the ImportInProgress record (see :match),
+    # so the old form's timestamp no longer matches: that form really was
+    # superseded by another import and must keep being rejected.
+    @iip.update!(created: @iip.created + 1.hour)
+
+    assert_no_difference 'Issue.count' do
+      post :result, params: params
+    end
+    assert_response :success
+    assert_equal I18n.t(:error_import_superseded), flash[:error]
   end
 
   test 'run without import in progress should redirect to importer index' do
@@ -964,7 +1026,224 @@ class ImporterControllerTest < ActionController::TestCase
     assert_redirected_to project_importer_path(project_id: @project.identifier)
   end
 
+  # --- Cross-project protection (refs #117121) ---
+  # An import started on one project must not be visible or resumable through
+  # another project's URL: the batch target project is derived from the URL,
+  # so a foreign URL would import the remaining rows into the wrong project.
+  # run/result must also be covered by the :import permission (project module
+  # enabled and role permission).
+
+  test 'should not show run progress via another project URL' do
+    @other_project = create_other_project!
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+
+    get :run, params: { project_id: @other_project.identifier }
+    assert_redirected_to project_importer_path(project_id: @other_project.identifier)
+    assert flash[:error].present?,
+           'a foreign project URL must not show the progress page'
+  end
+
+  test 'should not process batches via another project URL' do
+    @other_project = create_other_project!
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+
+    assert_no_difference 'Issue.count' do
+      post :run, params: { project_id: @other_project.identifier }
+    end
+    assert_redirected_to project_importer_path(project_id: @other_project.identifier)
+    assert_equal 0, @other_project.issues.count,
+                 'no row may be imported into the project from the URL'
+    assert_not @iip.reload.finished,
+               'the import must not advance through a foreign project URL'
+  end
+
+  test 'should not show the result of an import finished on another project' do
+    @other_project = create_other_project!
+    @iip.update!(csv_data: cross_project_csv)
+    run_import_to_completion(batch_run_params)
+    assert_response :success
+
+    get :result, params: { project_id: @other_project.identifier }
+    assert_response :success
+    assert flash[:error].present?,
+           'a foreign project URL must not show the import result'
+  end
+
+  test 'should not start an import whose mapping was submitted to another project' do
+    @other_project = create_other_project!
+    assert_no_difference 'Issue.count' do
+      post :result, params: batch_run_params.merge(project_id: @other_project.identifier)
+    end
+    assert_response :success
+    assert flash[:error].present?
+    assert @iip.reload.settings.blank?,
+           'the mapping must not be stored for a foreign project'
+  end
+
+  test 'should refuse the run page when the importer module is disabled on the project' do
+    @project.disable_module!(:importer)
+    get :run, params: { project_id: @project.identifier }
+    assert_response :forbidden
+  end
+
+  test 'should refuse to process a batch when the importer module is disabled on the project' do
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    @project.disable_module!(:importer)
+
+    assert_no_difference 'Issue.count' do
+      post :run, params: { project_id: @project.identifier }
+    end
+    assert_response :forbidden
+  end
+
+  test 'should refuse the result page when the importer module is disabled on the project' do
+    @project.disable_module!(:importer)
+    get :result, params: { project_id: @project.identifier }
+    assert_response :forbidden
+  end
+
+  test 'should refuse the run page for a user without the import permission' do
+    role = Role.create! name: 'NO_IMPORT', permissions: %i[view_issues]
+    user = User.new(firstname: 'No', lastname: 'Import', mail: 'no.import@example.com')
+    user.login = 'noimport'
+    membership = user.memberships.build(project: @project)
+    membership.roles << role
+    membership.principal = user
+    user.pref.auto_watch_on = nil if Redmine::VERSION.to_s.to_f >= 5.1
+    user.save!
+    User.stubs(:current).returns(user)
+
+    get :run, params: { project_id: @project.identifier }
+    assert_response :forbidden
+  end
+
+  # --- Per-project isolation of match (refs #117121) ---
+  # Starting an import must only replace the user's previous import on the
+  # same project: an import the user has in progress on another project is
+  # independent and must not be discarded.
+
+  test 'should keep an import running on another project when a new one is matched' do
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    assert_redirected_to "/projects/#{@project.identifier}/importer/run"
+    settings_before = @iip.reload.settings
+    assert settings_before.present?
+
+    @other_project = create_other_project!
+    post_match!(@other_project,
+                "#,Subject,Tracker,Status,Priority\n" \
+                "70011,Other One,Defect,New,Critical\n")
+    assert_response :success
+
+    assert ImportInProgress.exists?(@iip.id),
+           'match on another project must not delete the running import'
+    @iip.reload
+    assert_equal settings_before, @iip.settings,
+                 'the running import must keep its stored mapping'
+    assert_equal 2, ImportInProgress.where(user_id: @user.id).count,
+                 'each project keeps its own import in progress'
+
+    # The interrupted project can still finish its import afterwards
+    post :run, params: { project_id: @project.identifier }
+    assert_redirected_to "/projects/#{@project.identifier}/importer/result"
+    assert_equal 3, @project.issues.where('subject LIKE ?', 'Cross%').count
+  end
+
+  test 'should replace the previous import when matched again on the same project' do
+    @iip.update!(csv_data: cross_project_csv)
+    post :result, params: batch_run_params
+    assert @iip.reload.settings.present?
+
+    post_match!(@project,
+                "#,Subject,Tracker,Status,Priority\n" \
+                "70012,Fresh One,Defect,New,Critical\n")
+    assert_response :success
+
+    rows = ImportInProgress.where(user_id: @user.id, project_id: @project.id)
+    assert_equal 1, rows.count, 'the same project keeps a single import in progress'
+    assert_includes rows.first.csv_data, 'Fresh One'
+    assert rows.first.settings.blank?, 'a re-matched import starts from scratch'
+  end
+
+  test 'should run imports on two projects independently to completion' do
+    a_csv = +"#,Subject,Tracker,Status,Priority\n"
+    b_csv = +"#,Subject,Tracker,Status,Priority\n"
+    8.times do |i|
+      a_csv << "#{70_101 + i},A-#{i + 1},Defect,New,Critical\n"
+      b_csv << "#{70_201 + i},B-#{i + 1},Defect,New,Critical\n"
+    end
+    @iip.update!(csv_data: a_csv)
+    post :result, params: batch_run_params
+
+    @other_project = create_other_project!
+    other_iip = ImportInProgress.create!(user: @user, project: @other_project,
+                                         csv_data: b_csv, created: DateTime.now,
+                                         encoding: 'UTF-8', col_sep: ',', quote_char: '"')
+    post :result, params: batch_run_params.merge(
+      project_id: @other_project.identifier,
+      import_timestamp: other_iip.created.strftime('%Y-%m-%d %H:%M:%S')
+    )
+
+    # Alternate the polling between the two projects until both finish
+    # (each batch imports at most 5 rows, so each import needs two runs)
+    10.times do
+      break if @iip.reload.finished && other_iip.reload.finished
+
+      [@project, @other_project].each do |project|
+        post :run, params: { project_id: project.identifier }
+      end
+    end
+
+    assert @iip.reload.finished, 'the first import must run to completion'
+    assert other_iip.reload.finished, 'the second import must run to completion'
+    assert_equal 8, @project.issues.where('subject LIKE ?', 'A-%').count
+    assert_equal 8, @other_project.issues.where('subject LIKE ?', 'B-%').count
+    assert_equal 0, @project.issues.where('subject LIKE ?', 'B-%').count,
+                 'no row may leak into the other project'
+    assert_equal 0, @other_project.issues.where('subject LIKE ?', 'A-%').count,
+                 'no row may leak into the other project'
+  end
+
   protected
+
+  # A second project the import was NOT started on, fully able to receive
+  # imported issues (importer module enabled, same tracker), so the
+  # cross-project tests fail loudly if rows leak into it.
+  def create_other_project!
+    project = Project.create! name: 'other', identifier: 'importer_other_project'
+    project.trackers << @tracker unless project.trackers.include?(@tracker)
+    project.save!
+    project.enable_module!(:importer)
+    project
+  end
+
+  def cross_project_csv
+    "#,Subject,Tracker,Status,Priority\n" \
+      "1,Cross One,Defect,New,Critical\n" \
+      "2,Cross Two,Defect,New,Critical\n" \
+      "3,Cross Three,Defect,New,Critical\n"
+  end
+
+  # Uploads csv_data to the project's match action, as the import form does.
+  def post_match!(project, csv_data)
+    file = Tempfile.new(['test', '.csv'])
+    file.write(csv_data)
+    file.rewind
+    post :match, params: {
+      project_id: project.identifier,
+      file: Rack::Test::UploadedFile.new(file.path, 'text/csv'),
+      wrapper: '"',
+      splitter: ',',
+      encoding: 'UTF-8'
+    }
+  ensure
+    file.close
+    file.unlink
+  end
 
   # Drives the batched import flow to completion: POST :result stores the
   # settings, then POST :run is repeated until it redirects to the result
@@ -1114,9 +1393,10 @@ class ImporterControllerTest < ActionController::TestCase
     create_iip!('CustomFieldMultiValues', user, project)
   end
 
-  def create_iip!(filename, user, _project)
+  def create_iip!(filename, user, project)
     iip = ImportInProgress.new
     iip.user = user
+    iip.project = project
     iip.csv_data = get_csv(filename)
     # iip.created = DateTime.new(2001,2,3,4,5,6,'+7')
     iip.created = DateTime.now

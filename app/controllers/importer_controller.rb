@@ -9,6 +9,10 @@ NoIssueForUniqueValue = Class.new(RuntimeError)
 class ImporterController < ApplicationController
   using RedmineImporter::Patches::Redmine51ToFsMethodPatch
   before_action :find_project
+  # Every action requires the :import permission on the URL's project (the
+  # importer module must be enabled there and the role must allow it), like
+  # Redmine core's project-scoped controllers.
+  before_action :authorize
 
   ISSUE_ATTRS = %i[id subject assigned_to fixed_version
                    author description category priority tracker status
@@ -31,9 +35,12 @@ class ImporterController < ApplicationController
     end
 
     # Delete existing iip to ensure there can't be two iips for a user
-    ImportInProgress.where('user_id = ?', User.current.id).delete_all
-    # save import-in-progress data
-    iip = ImportInProgress.find_or_create_by(user_id: User.current.id)
+    # within the same project; imports the user has in progress on other
+    # projects are independent and must not be discarded (#117121)
+    ImportInProgress.where(user_id: User.current.id, project_id: @project.id).delete_all
+    # save import-in-progress data, keyed by user and originating project;
+    # run/result requests for any other project must not see or resume it
+    iip = ImportInProgress.find_or_create_by(user_id: User.current.id, project_id: @project.id)
     iip.quote_char = params[:wrapper]
     iip.col_sep = params[:splitter]
     iip.encoding = params[:encoding]
@@ -347,7 +354,7 @@ class ImporterController < ApplicationController
     init_display_state
 
     # Retrieve saved import data
-    iip = ImportInProgress.find_by_user_id(User.current.id)
+    iip = current_import_in_progress
     if iip.nil?
       flash[:error] = l(:error_no_import_in_progress)
       return
@@ -358,9 +365,21 @@ class ImporterController < ApplicationController
     end
     # A mapping form may only be submitted once per uploaded file (the legacy
     # implementation guaranteed this by deleting the iip after importing);
-    # re-submitting would restart the import and duplicate issues.
+    # re-submitting would restart the import and duplicate issues. The
+    # timestamp matched above, so this is the form of the import the user
+    # already started (typically the browser's back button from the progress
+    # page): send them back to that import instead of failing with the
+    # misleading "superseded" error — to the progress page while it is
+    # running, so polling resumes from the saved position, or to its report
+    # once it finished (#117120).
     if iip.settings.present?
-      flash[:error] = l(:error_import_superseded)
+      if iip.finished?
+        flash[:notice] = l(:notice_import_already_finished)
+        redirect_to project_importer_result_path(project_id: @project)
+      else
+        flash[:notice] = l(:notice_import_already_running)
+        redirect_to project_importer_run_path(project_id: @project)
+      end
       return
     end
 
@@ -423,7 +442,7 @@ class ImporterController < ApplicationController
 
   # GET run
   def show_run_page
-    @iip = ImportInProgress.find_by_user_id(User.current.id)
+    @iip = current_import_in_progress
     if @iip.nil? || @iip.settings.blank?
       flash[:error] = l(:error_no_import_in_progress)
       redirect_to project_importer_path(project_id: @project)
@@ -434,7 +453,7 @@ class ImporterController < ApplicationController
 
   # POST run
   def process_batch
-    @iip = ImportInProgress.find_by_user_id(User.current.id)
+    @iip = current_import_in_progress
     if @iip.nil? || @iip.settings.blank?
       flash[:error] = l(:error_no_import_in_progress)
       return redirect_to project_importer_path(project_id: @project)
@@ -490,7 +509,7 @@ class ImporterController < ApplicationController
   def show_result
     init_display_state
 
-    iip = ImportInProgress.find_by_user_id(User.current.id)
+    iip = current_import_in_progress
     if iip.nil? || iip.settings.blank?
       flash.now[:error] = l(:error_no_import_in_progress)
       return
@@ -861,6 +880,16 @@ class ImporterController < ApplicationController
 
   def find_project
     @project = Project.find(params[:project_id])
+  end
+
+  # The import the current user started on the current project. Scoping by
+  # project (in addition to user) makes an import invisible from any other
+  # project's URL: the batch target project is derived from the URL, so a
+  # stale tab on a foreign project would otherwise import the remaining rows
+  # into that unrelated project (#117121). A mismatch behaves exactly like
+  # "no import in progress".
+  def current_import_in_progress
+    ImportInProgress.find_by(user_id: User.current.id, project_id: @project.id)
   end
 
   def flash_message(type, text)
