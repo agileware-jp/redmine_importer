@@ -5,6 +5,7 @@ require 'tempfile'
 
 MultipleIssuesForUniqueValue = Class.new(RuntimeError)
 NoIssueForUniqueValue = Class.new(RuntimeError)
+UnsupportedUniqueField = Class.new(RuntimeError)
 
 class ImporterController < ApplicationController
   using RedmineImporter::Patches::Redmine51ToFsMethodPatch
@@ -114,8 +115,10 @@ class ImporterController < ApplicationController
     # translate unique_attr if it's a custom field -- only on the first issue
     unless unique_attr_checked
       if unique_field && !ISSUE_ATTRS.include?(unique_attr.to_sym)
+        # fields_map values carry a 'custom_field-' prefix (see #match)
+        cf_name = unique_attr.delete_prefix('custom_field-')
         issue.available_custom_fields.each do |cf|
-          if cf.name == unique_attr
+          if cf.name == cf_name
             unique_attr = "cf_#{cf.id}"
             break
           end
@@ -165,6 +168,9 @@ class ImporterController < ApplicationController
         log_failure(row,
                     l(:warning_multiple_matches_for_update, issue_num: @failed_count + 1,
                                                             value: row[unique_field]))
+        raise RowFailed
+      rescue UnsupportedUniqueField
+        log_failure(row, l(:warning_unique_field_not_supported, attr: unique_field))
         raise RowFailed
       end
     end
@@ -266,6 +272,9 @@ class ImporterController < ApplicationController
     @failed_count += 1
     @failed_issues[@failed_count] = row
     @messages << l(:warning_parent_multiple_matches, issue_num: @failed_count, value: parent_value)
+    raise RowFailed
+  rescue UnsupportedUniqueField
+    log_failure(row, l(:warning_unique_field_not_supported, attr: unique_field))
     raise RowFailed
   end
 
@@ -738,6 +747,8 @@ class ImporterController < ApplicationController
           @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
         rescue MultipleIssuesForUniqueValue
           @messages << "Warning: Multiple matches for relation target '#{other_value}'"
+        rescue UnsupportedUniqueField
+          @messages << l(:warning_unique_field_not_supported, attr: unique_field)
         end
       end
 
@@ -1026,7 +1037,11 @@ class ImporterController < ApplicationController
 
       query = query_class.new(name: '_importer', project: @project)
       query.add_filter('status_id', '*', [1])
-      query.add_filter(unique_attr, '=', [attr_value])
+      # add_filter silently ignores invalid filter names (returning nil), which
+      # would turn the query into an unfiltered "all issues" search
+      if query.add_filter(query_filter_for_unique_attr(unique_attr), '=', [attr_value]).nil?
+        raise UnsupportedUniqueField, "'#{unique_attr}' is not a valid IssueQuery filter"
+      end
 
       issues = Issue.joins([:project])
                     .includes(%i[assigned_to status tracker project priority
@@ -1046,6 +1061,18 @@ class ImporterController < ApplicationController
       raise NoIssueForUniqueValue, "No issue with #{unique_attr} of '#{attr_value}' found"
     else
       issues.first
+    end
+  end
+
+  # Maps a unique_attr from fields_map to a valid IssueQuery filter name.
+  # Custom fields are already translated to 'cf_<id>' by translate_unique_attr.
+  # Other standard fields (tracker, priority, ...) would require translating
+  # names to ids, so they are left as-is and rejected by the add_filter guard.
+  def query_filter_for_unique_attr(unique_attr)
+    case unique_attr
+    when 'standard_field-id' then 'issue_id'
+    when 'standard_field-subject' then 'subject'
+    else unique_attr
     end
   end
 
