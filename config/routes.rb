@@ -5,4 +5,6 @@ resources :projects do
   post '/importer/match', to: 'importer#match'
   get '/importer/result', to: 'importer#result'
   post '/importer/result', to: 'importer#result'
+  get '/importer/run', to: 'importer#run'
+  post '/importer/run', to: 'importer#run'
 end

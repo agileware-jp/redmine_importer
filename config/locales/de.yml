@@ -25,6 +25,7 @@ de:
     label_rule_name: "Name der Input-Regel"
     
     label_import_result: "Import Ergebnis"
+    label_importer_progress: "Import läuft..."
     label_result_notice: "%{handle_count} Tickets verarbeitet.  {{success_count}} Tickets erfolgreich importiert."
     label_result_projects: "Betroffene Projekte:"
     label_result_issues: "%{count} Tickets"
@@ -42,6 +43,8 @@ de:
     label_importer_use_issue_id: "Import using issue ids"
     error_no_import_in_progress: "No import is currently in progress"
     error_import_superseded: "You seem to have started another import since starting this one. This import cannot be completed"
+    notice_import_already_running: "An import you started is still running, so its progress is shown. The remaining rows will continue to be imported."
+    notice_import_already_finished: "The import you submitted has already finished, so its report is shown. No rows were imported again."
     error_must_map_id_column: "You must specify a column mapping for id when importing using provided issue ids."
     error_issue_id_taken: "This issue id has already been taken."
     error_csv_no_data: "No data line in your CSV, check the encoding of the file"

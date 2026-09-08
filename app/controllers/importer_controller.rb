@@ -9,11 +9,21 @@ NoIssueForUniqueValue = Class.new(RuntimeError)
 class ImporterController < ApplicationController
   using RedmineImporter::Patches::Redmine51ToFsMethodPatch
   before_action :find_project
+  # Every action requires the :import permission on the URL's project (the
+  # importer module must be enabled there and the role must allow it), like
+  # Redmine core's project-scoped controllers.
+  before_action :authorize
 
   ISSUE_ATTRS = %i[id subject assigned_to fixed_version
                    author description category priority tracker status
                    start_date due_date done_ratio estimated_hours
                    parent_issue watchers is_private].freeze
+
+  # Wall-clock budget of a single run request. Together with
+  # max_items_per_request this mirrors Redmine core's ImportsController#run,
+  # which processes at most 5 items / 10 seconds per request and lets the
+  # client drive the rest through repeated requests.
+  MAX_TIME_PER_REQUEST = 10.seconds
 
   def index; end
 
@@ -25,9 +35,12 @@ class ImporterController < ApplicationController
     end
 
     # Delete existing iip to ensure there can't be two iips for a user
-    ImportInProgress.where('user_id = ?', User.current.id).delete_all
-    # save import-in-progress data
-    iip = ImportInProgress.find_or_create_by(user_id: User.current.id)
+    # within the same project; imports the user has in progress on other
+    # projects are independent and must not be discarded (#117121)
+    ImportInProgress.where(user_id: User.current.id, project_id: @project.id).delete_all
+    # save import-in-progress data, keyed by user and originating project;
+    # run/result requests for any other project must not see or resume it
+    iip = ImportInProgress.find_or_create_by(user_id: User.current.id, project_id: @project.id)
     iip.quote_char = params[:wrapper]
     iip.col_sep = params[:splitter]
     iip.encoding = params[:encoding]
@@ -75,269 +88,25 @@ class ImporterController < ApplicationController
     @attrs.sort!
   end
 
+  # POST: validates the submitted mapping, persists it on the
+  # ImportInProgress record and redirects to the run page; the rows are then
+  # imported in batches driven by POST run requests.
+  # GET: renders the report of a finished import from the persisted state.
   def result
-    # used for bookkeeping
-    flash.delete(:error)
-
-    init_globals
-    # Used to optimize some work that has to happen inside the loop
-    unique_attr_checked = false
-
-    # Retrieve saved import data
-    iip = ImportInProgress.find_by_user_id(User.current.id)
-    if iip.nil?
-      flash[:error] = l(:error_no_import_in_progress)
-      return
+    if request.post?
+      prepare_import
+    else
+      show_result
     end
-    if iip.created.strftime('%Y-%m-%d %H:%M:%S') != params[:import_timestamp]
-      flash[:error] = l(:error_import_superseded)
-      return
-    end
-    # which options were turned on?
-    update_issue = params[:update_issue]
-    update_other_project = params[:update_other_project]
-    send_emails = params[:send_emails]
-    add_categories = params[:add_categories]
-    add_versions = params[:add_versions]
-    ignore_non_exist = params[:ignore_non_exist]
+  end
 
-    # which fields should we use? what maps to what?
-    unique_field = params[:unique_field].empty? ? nil : params[:unique_field]
-
-    fields_map = {}
-    params[:fields_map].each { |k, v| fields_map[k.unpack('U*').pack('U*')] = v }
-    unique_attr = fields_map[unique_field]
-
-    default_tracker = params[:default_tracker]
-    journal_field = params[:journal_field]
-
-    # attrs_map is fields_map's invert
-    @attrs_map = fields_map.invert
-
-    # validation!
-    # if the unique_attr is blank but any of the following opts is turned on,
-    if unique_attr.blank?
-      if update_issue
-        flash[:error] = l(:text_rmi_specify_unique_field_for_update)
-      elsif @attrs_map['standard_field-parent_issue'].present?
-        flash[:error] = l(:text_rmi_specify_unique_field_for_column,
-                          column: l(:field_parent_issue))
-      else IssueRelation::TYPES.each_key.any? { |t| @attrs_map["issue_relation-#{t}"].present? }
-           IssueRelation::TYPES.each_key do |t|
-             if @attrs_map["issue_relation-#{t}"].present?
-               flash[:error] = l(:text_rmi_specify_unique_field_for_column,
-                                 column: l("label_#{t}".to_sym))
-             end
-           end
-      end
-    end
-
-    # validate that the id attribute has been selected
-    if use_issue_id
-      if @attrs_map['standard_field-id'].blank?
-        flash[:error] = l(:error_must_map_id_column)
-      end
-    end
-
-    # if error is full, NOP
-    return if flash[:error].present?
-
-    csv_opt = { headers: true,
-                encoding: 'UTF-8',
-                quote_char: iip.quote_char,
-                col_sep: iip.col_sep }
-    CSV.new(iip.csv_data, **csv_opt).each do |row|
-      project = Project.find_by_name(fetch('standard_field-project', row))
-      project ||= @project
-
-      begin
-        row.each do |k, v|
-          k = k.unpack('U*').pack('U*') if k.is_a?(String)
-          v = v.unpack('U*').pack('U*') if v.is_a?(String)
-
-          row[k] = v
-        end
-
-        issue = Issue.new
-        issue.notify = false
-
-        issue.id = fetch('standard_field-id', row) if use_issue_id
-
-        tracker = Tracker.find_by_name(fetch('standard_field-tracker', row))
-        status = IssueStatus.find_by_name(fetch('standard_field-status', row))
-        author = if @attrs_map.key?('standard_field-author') && @attrs_map['standard_field-author']
-                   user_for_login!(fetch('standard_field-author', row))
-                 else
-                   User.current
-                 end
-        priority = Enumeration.find_by_name(fetch('standard_field-priority', row))
-        category_name = fetch('standard_field-category', row)
-        category = IssueCategory.find_by_project_id_and_name(project.id,
-                                                             category_name)
-
-        if !category \
-          && category_name && !category_name.empty? \
-          && add_categories
-
-          category = project.issue_categories.build(name: category_name)
-          category.save
-        end
-
-        if category.blank? && fetch('standard_field-category', row).present?
-          @unfound_class = 'Category'
-          @unfound_key = fetch('standard_field-category', row)
-          raise ActiveRecord::RecordNotFound
-        end
-
-        if fetch('standard_field-assigned_to', row).present?
-          assigned_to = user_for_login!(fetch('standard_field-assigned_to', row))
-          assigned_to = nil if assigned_to == User.anonymous
-        else
-          assigned_to = nil
-        end
-
-        if fetch('standard_field-fixed_version', row).present?
-          fixed_version_name = fetch('standard_field-fixed_version', row)
-          fixed_version_id = version_id_for_name!(project,
-                                                  fixed_version_name,
-                                                  add_versions)
-        else
-          fixed_version_name = nil
-          fixed_version_id = nil
-        end
-
-        watchers = fetch('standard_field-watchers', row)
-
-        issue.project_id = !project.nil? ? project.id : @project.id
-        issue.tracker_id = !tracker.nil? ? tracker.id : default_tracker
-        issue.author_id = !author.nil? ? author.id : User.current.id
-      rescue ActiveRecord::RecordNotFound
-        log_failure(row, l(:warning_record_not_found, issue_num: @failed_count + 1,
-                                                              class_name: @unfound_class, key: @unfound_key))
-        next
-      end
-
-      begin
-        unique_attr = translate_unique_attr(issue, unique_field, unique_attr, unique_attr_checked)
-
-        issue, journal = handle_issue_update(issue, row, author, status, update_other_project, journal_field,
-                                             unique_attr, unique_field, ignore_non_exist, update_issue)
-
-        project ||= Project.find_by_id(issue.project_id)
-
-        update_project_issues_stat(project)
-        assign_issue_attrs(issue, category, fixed_version_id, assigned_to, status, row, priority, tracker)
-        handle_parent_issues(issue, row, ignore_non_exist, unique_attr, unique_field)
-        handle_custom_fields(add_versions, issue, project, row)
-        handle_watchers(issue, row, watchers)
-      rescue RowFailed
-        next
-      rescue ActiveRecord::RecordNotFound
-        log_failure(row, l(:warning_record_not_found, issue_num: @failed_count + 1,
-                                                      class_name: @unfound_class, key: @unfound_key))
-        next
-      rescue ArgumentError
-        log_failure(row, l(:warning_invalid_value, issue_num: @failed_count + 1, value: @error_value))
-        next
-      end
-
-      issue.singleton_class.include RedmineImporter::Concerns::ValidateStatus
-
-      begin
-        issue_saved = issue.save
-      rescue ActiveRecord::RecordNotUnique
-        issue_saved = false
-        @messages << l(:error_issue_id_taken)
-      end
-
-      if issue_saved
-        @issue_by_unique_attr[row[unique_field]] = issue if unique_field
-        @deferred_callbacks.execute(row[unique_field], issue) if unique_field
-
-        if send_emails
-          if update_issue
-            if Setting.notified_events.include?('issue_updated') \
-               && !(issue.current_journal.details.empty? && issue.current_journal.notes.blank?)
-
-              Mailer.deliver_issue_edit(issue.current_journal)
-            end
-          else
-            if Setting.notified_events.include?('issue_added')
-              Mailer.deliver_issue_add(issue)
-            end
-          end
-        end
-
-        # Issue relations
-        IssueRelation::TYPES.each_pair do |rtype, _rinfo|
-          other_value = row[@attrs_map["issue_relation-#{rtype}"]]
-          next if other_value.blank?
-
-          begin
-            # When unique_attr is 'standard_field-id' and use_issue_id is false,
-            # use cache-based lookup to support deferred reference resolution.
-            if unique_attr == 'standard_field-id' && !use_issue_id
-              other_issue = @issue_by_unique_attr[other_value]
-              unless other_issue
-                # Target not in cache yet - register callback for deferred creation
-                @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
-                next
-              end
-            else
-              other_issue = issue_for_unique_attr(unique_attr, other_value, row)
-            end
-
-            already_related = issue.relations.any? do |r|
-              (r.other_issue(issue).id == other_issue.id) \
-                && (r.relation_type_for(issue) == rtype)
-            end
-            next if already_related
-
-            relation = IssueRelation.new(issue_from: issue,
-                                         issue_to: other_issue,
-                                         relation_type: rtype)
-            unless relation.save
-              @messages << "Warning: Failed to create relation: #{relation.errors.full_messages.join(', ')}"
-            end
-          rescue NoIssueForUniqueValue
-            # Register callback for deferred relation creation
-            # Target issue may appear later in CSV
-            @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
-          rescue MultipleIssuesForUniqueValue
-            @messages << "Warning: Multiple matches for relation target '#{other_value}'"
-          end
-        end
-
-        journal
-
-        @handle_count += 1
-
-      else
-        @failed_count += 1
-        @failed_issues[@failed_count] = row
-        @messages << l(:warning_validation_errors, issue_num: @failed_count)
-        issue.errors.each do |attr, error_message|
-          @messages << l(:warning_attr_error, attr: attr, message: error_message)
-        end
-      end
-    end # do
-
-    # Warn about any unresolved deferred references
-    @deferred_callbacks.warn_unresolved
-
-    unless @failed_issues.empty?
-      @failed_issues = @failed_issues.sort
-      @headers = @failed_issues[0][1].headers
-    end
-
-    # Clean up after ourselves
-    iip.delete
-
-    # Garbage prevention: clean up iips older than 3 days
-    ImportInProgress.where('created < ?', Time.new - 3 * 24 * 60 * 60).delete_all
-
-    if use_issue_id && ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
-      ActiveRecord::Base.connection.reset_pk_sequence!(Issue.table_name)
+  # GET: progress page. POST: imports one batch and responds with a redirect
+  # (html) or a self-recursive ajax snippet (js) until every row is consumed.
+  def run
+    if request.post?
+      process_batch
+    else
+      show_run_page
     end
   end
 
@@ -500,30 +269,6 @@ class ImporterController < ApplicationController
     raise RowFailed
   end
 
-  def init_globals
-    @handle_count = 0
-    @update_count = 0
-    @skip_count = 0
-    @failed_count = 0
-    @failed_issues = {}
-    @messages = []
-    @affect_projects_issues = {}
-    # This is a cache of previously inserted issues indexed by the value
-    # the user provided in the unique column
-    @issue_by_unique_attr = {}
-    # Cache of user id by login
-    @user_by_login = {}
-    # Cache of Version by name
-    @version_id_by_name = {}
-    # Cache of CustomFieldEnumeration by name
-    @enumeration_id_by_name = {}
-    # Deferred callbacks for resolving forward references in CSV
-    @deferred_callbacks = RedmineImporter::DeferredCallbacks.new(
-      issue_cache: @issue_by_unique_attr,
-      messages: @messages
-    )
-  end
-
   def handle_watchers(issue, row, watchers)
     return unless assignable?(:watchers)
 
@@ -599,8 +344,528 @@ class ImporterController < ApplicationController
 
   private
 
+  # POST result: everything the legacy single-request import did before its
+  # row loop — validations plus persisting the mapping so subsequent run
+  # requests can restore it.
+  def prepare_import
+    # used for bookkeeping
+    flash.delete(:error)
+
+    init_display_state
+
+    # Retrieve saved import data
+    iip = current_import_in_progress
+    if iip.nil?
+      flash[:error] = l(:error_no_import_in_progress)
+      return
+    end
+    if iip.created.strftime('%Y-%m-%d %H:%M:%S') != params[:import_timestamp]
+      flash[:error] = l(:error_import_superseded)
+      return
+    end
+    # A mapping form may only be submitted once per uploaded file (the legacy
+    # implementation guaranteed this by deleting the iip after importing);
+    # re-submitting would restart the import and duplicate issues. The
+    # timestamp matched above, so this is the form of the import the user
+    # already started (typically the browser's back button from the progress
+    # page): send them back to that import instead of failing with the
+    # misleading "superseded" error — to the progress page while it is
+    # running, so polling resumes from the saved position, or to its report
+    # once it finished (#117120).
+    if iip.settings.present?
+      if iip.finished?
+        flash[:notice] = l(:notice_import_already_finished)
+        redirect_to project_importer_result_path(project_id: @project)
+      else
+        flash[:notice] = l(:notice_import_already_running)
+        redirect_to project_importer_run_path(project_id: @project)
+      end
+      return
+    end
+
+    @import_params = extract_import_params
+    fields_map = @import_params['fields_map']
+    unique_field = @import_params['unique_field']
+    unique_attr = fields_map[unique_field]
+
+    # attrs_map is fields_map's invert
+    @attrs_map = fields_map.invert
+
+    # validation!
+    # if the unique_attr is blank but any of the following opts is turned on,
+    if unique_attr.blank?
+      if @import_params['update_issue']
+        flash[:error] = l(:text_rmi_specify_unique_field_for_update)
+      elsif @attrs_map['standard_field-parent_issue'].present?
+        flash[:error] = l(:text_rmi_specify_unique_field_for_column,
+                          column: l(:field_parent_issue))
+      else IssueRelation::TYPES.each_key.any? { |t| @attrs_map["issue_relation-#{t}"].present? }
+           IssueRelation::TYPES.each_key do |t|
+             if @attrs_map["issue_relation-#{t}"].present?
+               flash[:error] = l(:text_rmi_specify_unique_field_for_column,
+                                 column: l("label_#{t}".to_sym))
+             end
+           end
+      end
+    end
+
+    # validate that the id attribute has been selected
+    if use_issue_id
+      if @attrs_map['standard_field-id'].blank?
+        flash[:error] = l(:error_must_map_id_column)
+      end
+    end
+
+    # if error is full, NOP (renders the result template with the flash)
+    return if flash[:error].present?
+
+    total_items, headers = count_csv_rows(iip)
+
+    iip.import_settings = {
+      'params' => @import_params,
+      'headers' => headers,
+      'counts' => { 'handle_count' => 0, 'update_count' => 0,
+                    'skip_count' => 0, 'failed_count' => 0 },
+      'messages' => [],
+      'affect_projects_issues' => {},
+      'failed_rows' => [],
+      'issue_ids' => {},
+      'callbacks' => {}
+    }
+    iip.total_items = total_items
+    iip.position = 0
+    iip.finished = false
+    iip.save!
+
+    redirect_to project_importer_run_path(project_id: @project)
+  end
+
+  # GET run
+  def show_run_page
+    @iip = current_import_in_progress
+    if @iip.nil? || @iip.settings.blank?
+      flash[:error] = l(:error_no_import_in_progress)
+      redirect_to project_importer_path(project_id: @project)
+    elsif @iip.finished?
+      redirect_to project_importer_result_path(project_id: @project)
+    end
+  end
+
+  # POST run
+  def process_batch
+    @iip = current_import_in_progress
+    if @iip.nil? || @iip.settings.blank?
+      flash[:error] = l(:error_no_import_in_progress)
+      return redirect_to project_importer_path(project_id: @project)
+    end
+    # Serialize concurrent run requests (a reloaded progress page or a second
+    # tab starts another polling chain): the row lock blocks the concurrent
+    # request until this batch commits, so it re-reads the advanced position
+    # and continues with the following rows instead of re-importing the same
+    # ones. The lock's transaction also makes the batch atomic — when a row
+    # fails with an unexpected error the whole batch rolls back, so a retry
+    # never duplicates issues.
+    @iip.with_lock do
+      unless @iip.finished?
+        restore_import_state(@iip)
+        interrupted = run_batch(@iip)
+
+        unless interrupted
+          # Warn about any unresolved deferred references
+          @deferred_callbacks.warn_unresolved
+
+          if use_issue_id && ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
+            ActiveRecord::Base.connection.reset_pk_sequence!(Issue.table_name)
+          end
+
+          # Garbage prevention: clean up imports abandoned for more than
+          # 3 days — only when an import finishes (not on the hot polling
+          # path), and never the import that just finished
+          ImportInProgress.where('created < ?', Time.new - 3 * 24 * 60 * 60)
+                          .where.not(id: @iip.id).delete_all
+        end
+
+        persist_import_state(@iip, finished: !interrupted)
+      end
+    end
+
+    respond_after_batch
+  end
+
+  def respond_after_batch
+    respond_to do |format|
+      format.html do
+        if @iip.finished?
+          redirect_to project_importer_result_path(project_id: @project)
+        else
+          redirect_to project_importer_run_path(project_id: @project)
+        end
+      end
+      format.js # run.js.erb updates the progress bar and re-posts itself
+    end
+  end
+
+  # GET result
+  def show_result
+    init_display_state
+
+    iip = current_import_in_progress
+    if iip.nil? || iip.settings.blank?
+      flash.now[:error] = l(:error_no_import_in_progress)
+      return
+    end
+    return redirect_to project_importer_run_path(project_id: @project) unless iip.finished?
+
+    settings = iip.import_settings
+    counts = settings['counts'] || {}
+    @handle_count = counts['handle_count'].to_i
+    @update_count = counts['update_count'].to_i
+    @skip_count = counts['skip_count'].to_i
+    @failed_count = counts['failed_count'].to_i
+    @messages = settings['messages'] || []
+    @affect_projects_issues = settings['affect_projects_issues'] || {}
+    @headers = settings['headers'] || []
+    @failed_issues = (settings['failed_rows'] || [])
+                     .map { |index, fields| [index.to_i, CSV::Row.new(@headers, fields)] }
+                     .sort_by(&:first)
+  end
+
+  # Imports rows until the batch budget (max_items_per_request rows or
+  # MAX_TIME_PER_REQUEST) runs out. The CSV is re-parsed from the top on
+  # every request and rows up to iip.position are skipped, mirroring
+  # Redmine core's Import#run. Returns true when interrupted mid-file.
+  def run_batch(iip)
+    csv_opt = { headers: true,
+                encoding: 'UTF-8',
+                quote_char: iip.quote_char,
+                col_sep: iip.col_sep }
+    resume_after = iip.position
+    imported = 0
+    started_on = Time.now
+    interrupted = false
+    position = 0
+
+    CSV.new(iip.csv_data, **csv_opt).each do |row|
+      position += 1
+      next if position <= resume_after
+
+      if imported >= max_items_per_request || Time.now >= started_on + MAX_TIME_PER_REQUEST
+        interrupted = true
+        break
+      end
+
+      import_row(row)
+      imported += 1
+      iip.position = position
+    end
+
+    interrupted
+  end
+
+  # One row of the legacy import loop, unchanged apart from reading the
+  # import options from the persisted settings and returning (instead of
+  # `next`) when the row fails.
+  def import_row(row)
+    update_issue = import_param('update_issue')
+    update_other_project = import_param('update_other_project')
+    send_emails = import_param('send_emails')
+    add_categories = import_param('add_categories')
+    add_versions = import_param('add_versions')
+    ignore_non_exist = import_param('ignore_non_exist')
+    unique_field = import_param('unique_field')
+    default_tracker = import_param('default_tracker')
+    journal_field = import_param('journal_field')
+
+    project = Project.find_by_name(fetch('standard_field-project', row))
+    project ||= @project
+
+    begin
+      row.each do |k, v|
+        k = k.unpack('U*').pack('U*') if k.is_a?(String)
+        v = v.unpack('U*').pack('U*') if v.is_a?(String)
+
+        row[k] = v
+      end
+
+      issue = Issue.new
+      issue.notify = false
+
+      issue.id = fetch('standard_field-id', row) if use_issue_id
+
+      tracker = Tracker.find_by_name(fetch('standard_field-tracker', row))
+      status = IssueStatus.find_by_name(fetch('standard_field-status', row))
+      author = if @attrs_map.key?('standard_field-author') && @attrs_map['standard_field-author']
+                 user_for_login!(fetch('standard_field-author', row))
+               else
+                 User.current
+               end
+      priority = Enumeration.find_by_name(fetch('standard_field-priority', row))
+      category_name = fetch('standard_field-category', row)
+      category = IssueCategory.find_by_project_id_and_name(project.id,
+                                                           category_name)
+
+      if !category \
+        && category_name && !category_name.empty? \
+        && add_categories
+
+        category = project.issue_categories.build(name: category_name)
+        category.save
+      end
+
+      if category.blank? && fetch('standard_field-category', row).present?
+        @unfound_class = 'Category'
+        @unfound_key = fetch('standard_field-category', row)
+        raise ActiveRecord::RecordNotFound
+      end
+
+      if fetch('standard_field-assigned_to', row).present?
+        assigned_to = user_for_login!(fetch('standard_field-assigned_to', row))
+        assigned_to = nil if assigned_to == User.anonymous
+      else
+        assigned_to = nil
+      end
+
+      if fetch('standard_field-fixed_version', row).present?
+        fixed_version_name = fetch('standard_field-fixed_version', row)
+        fixed_version_id = version_id_for_name!(project,
+                                                fixed_version_name,
+                                                add_versions)
+      else
+        fixed_version_name = nil
+        fixed_version_id = nil
+      end
+
+      watchers = fetch('standard_field-watchers', row)
+
+      issue.project_id = !project.nil? ? project.id : @project.id
+      issue.tracker_id = !tracker.nil? ? tracker.id : default_tracker
+      issue.author_id = !author.nil? ? author.id : User.current.id
+    rescue ActiveRecord::RecordNotFound
+      log_failure(row, l(:warning_record_not_found, issue_num: @failed_count + 1,
+                                                            class_name: @unfound_class, key: @unfound_key))
+      return
+    end
+
+    begin
+      @unique_attr = translate_unique_attr(issue, unique_field, @unique_attr, @unique_attr_checked)
+      @unique_attr_checked = true
+
+      issue, journal = handle_issue_update(issue, row, author, status, update_other_project, journal_field,
+                                           @unique_attr, unique_field, ignore_non_exist, update_issue)
+
+      project ||= Project.find_by_id(issue.project_id)
+
+      update_project_issues_stat(project)
+      assign_issue_attrs(issue, category, fixed_version_id, assigned_to, status, row, priority, tracker)
+      handle_parent_issues(issue, row, ignore_non_exist, @unique_attr, unique_field)
+      handle_custom_fields(add_versions, issue, project, row)
+      handle_watchers(issue, row, watchers)
+    rescue RowFailed
+      return
+    rescue ActiveRecord::RecordNotFound
+      log_failure(row, l(:warning_record_not_found, issue_num: @failed_count + 1,
+                                                    class_name: @unfound_class, key: @unfound_key))
+      return
+    rescue ArgumentError
+      log_failure(row, l(:warning_invalid_value, issue_num: @failed_count + 1, value: @error_value))
+      return
+    end
+
+    issue.singleton_class.include RedmineImporter::Concerns::ValidateStatus
+
+    begin
+      # The savepoint keeps the surrounding batch transaction usable when the
+      # INSERT itself fails (e.g. on the primary key with use_issue_id) —
+      # PostgreSQL aborts the whole transaction on any SQL error otherwise.
+      issue_saved = Issue.transaction(requires_new: true) { issue.save }
+    rescue ActiveRecord::RecordNotUnique
+      issue_saved = false
+      @messages << l(:error_issue_id_taken)
+    end
+
+    if issue_saved
+      @issue_by_unique_attr[row[unique_field]] = issue if unique_field
+      @deferred_callbacks.execute(row[unique_field], issue) if unique_field
+
+      if send_emails
+        if update_issue
+          if Setting.notified_events.include?('issue_updated') \
+             && !(issue.current_journal.details.empty? && issue.current_journal.notes.blank?)
+
+            Mailer.deliver_issue_edit(issue.current_journal)
+          end
+        else
+          if Setting.notified_events.include?('issue_added')
+            Mailer.deliver_issue_add(issue)
+          end
+        end
+      end
+
+      # Issue relations
+      IssueRelation::TYPES.each_pair do |rtype, _rinfo|
+        other_value = row[@attrs_map["issue_relation-#{rtype}"]]
+        next if other_value.blank?
+
+        begin
+          # When unique_attr is 'standard_field-id' and use_issue_id is false,
+          # use cache-based lookup to support deferred reference resolution.
+          if @unique_attr == 'standard_field-id' && !use_issue_id
+            other_issue = @issue_by_unique_attr[other_value]
+            unless other_issue
+              # Target not in cache yet - register callback for deferred creation
+              @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
+              next
+            end
+          else
+            other_issue = issue_for_unique_attr(@unique_attr, other_value, row)
+          end
+
+          already_related = issue.relations.any? do |r|
+            (r.other_issue(issue).id == other_issue.id) \
+              && (r.relation_type_for(issue) == rtype)
+          end
+          next if already_related
+
+          relation = IssueRelation.new(issue_from: issue,
+                                       issue_to: other_issue,
+                                       relation_type: rtype)
+          unless relation.save
+            @messages << "Warning: Failed to create relation: #{relation.errors.full_messages.join(', ')}"
+          end
+        rescue NoIssueForUniqueValue
+          # Register callback for deferred relation creation
+          # Target issue may appear later in CSV
+          @deferred_callbacks.register(other_value, :add_relation, row[unique_field], rtype)
+        rescue MultipleIssuesForUniqueValue
+          @messages << "Warning: Multiple matches for relation target '#{other_value}'"
+        end
+      end
+
+      journal
+
+      @handle_count += 1
+
+    else
+      @failed_count += 1
+      @failed_issues[@failed_count] = row
+      @messages << l(:warning_validation_errors, issue_num: @failed_count)
+      issue.errors.each do |attr, error_message|
+        @messages << l(:warning_attr_error, attr: attr, message: error_message)
+      end
+    end
+  end
+
+  # Import options captured from the mapping form, in a JSON-serializable
+  # shape so run requests can restore them from the ImportInProgress record.
+  def extract_import_params
+    fields_map = {}
+    params[:fields_map].each { |k, v| fields_map[k.unpack('U*').pack('U*')] = v }
+
+    {
+      'fields_map' => fields_map,
+      'unique_field' => params[:unique_field].present? ? params[:unique_field] : nil,
+      'update_issue' => params[:update_issue],
+      'update_other_project' => params[:update_other_project],
+      'send_emails' => params[:send_emails],
+      'add_categories' => params[:add_categories],
+      'add_versions' => params[:add_versions],
+      'ignore_non_exist' => params[:ignore_non_exist],
+      'use_anonymous' => params[:use_anonymous],
+      'use_issue_id' => params[:use_issue_id],
+      'default_tracker' => params[:default_tracker],
+      'journal_field' => params[:journal_field]
+    }
+  end
+
+  def import_param(key)
+    (@import_params || {})[key]
+  end
+
+  def restore_import_state(iip)
+    settings = iip.import_settings
+    @import_params = settings['params'] || {}
+    fields_map = @import_params['fields_map'] || {}
+    @attrs_map = fields_map.invert
+    @unique_attr = fields_map[@import_params['unique_field']]
+    @unique_attr_checked = false
+
+    counts = settings['counts'] || {}
+    @handle_count = counts['handle_count'].to_i
+    @update_count = counts['update_count'].to_i
+    @skip_count = counts['skip_count'].to_i
+    @failed_count = counts['failed_count'].to_i
+    @messages = settings['messages'] || []
+    @affect_projects_issues = settings['affect_projects_issues'] || {}
+    @csv_headers = settings['headers'] || []
+    @failed_issues = (settings['failed_rows'] || []).each_with_object({}) do |(index, fields), h|
+      h[index.to_i] = CSV::Row.new(@csv_headers, fields)
+    end
+
+    # This is a cache of previously inserted issues indexed by the value
+    # the user provided in the unique column
+    @issue_by_unique_attr = RedmineImporter::IssueUniqueCache.new(settings['issue_ids'])
+    # Cache of user id by login
+    @user_by_login = {}
+    # Cache of Version by name
+    @version_id_by_name = {}
+    # Cache of CustomFieldEnumeration by name
+    @enumeration_id_by_name = {}
+    # Deferred callbacks for resolving forward references in CSV
+    @deferred_callbacks = RedmineImporter::DeferredCallbacks.new(
+      issue_cache: @issue_by_unique_attr,
+      messages: @messages,
+      pending: settings['callbacks'] || {}
+    )
+  end
+
+  def persist_import_state(iip, finished:)
+    settings = iip.import_settings
+    settings['counts'] = { 'handle_count' => @handle_count,
+                           'update_count' => @update_count,
+                           'skip_count' => @skip_count,
+                           'failed_count' => @failed_count }
+    settings['messages'] = @messages
+    settings['affect_projects_issues'] = @affect_projects_issues
+    settings['failed_rows'] = @failed_issues.map { |index, row| [index, row.fields] }
+    settings['issue_ids'] = @issue_by_unique_attr.ids
+    settings['callbacks'] = @deferred_callbacks.pending
+    iip.import_settings = settings
+    iip.finished = finished
+    iip.save!
+  end
+
+  def init_display_state
+    @handle_count = 0
+    @update_count = 0
+    @skip_count = 0
+    @failed_count = 0
+    @failed_issues = {}
+    @messages = []
+    @affect_projects_issues = {}
+    @headers = []
+  end
+
+  def count_csv_rows(iip)
+    count = 0
+    headers = []
+    CSV.new(iip.csv_data, headers: true,
+                          encoding: 'UTF-8',
+                          quote_char: iip.quote_char,
+                          col_sep: iip.col_sep).each do |row|
+      headers = row.headers if count.zero?
+      count += 1
+    end
+    [count, headers]
+  end
+
+  # Rows imported per run request. Kept as a method (not a constant) so
+  # tests can stub it, like Redmine core's ImportsController.
+  def max_items_per_request
+    5
+  end
+
   def use_issue_id
-    params[:use_issue_id].present?
+    import_param('use_issue_id').present?
   end
 
   def fetch(key, row)
@@ -615,6 +880,16 @@ class ImporterController < ApplicationController
 
   def find_project
     @project = Project.find(params[:project_id])
+  end
+
+  # The import the current user started on the current project. Scoping by
+  # project (in addition to user) makes an import invisible from any other
+  # project's URL: the batch target project is derived from the URL, so a
+  # stale tab on a foreign project would otherwise import the remaining rows
+  # into that unrelated project (#117121). A mismatch behaves exactly like
+  # "no import in progress".
+  def current_import_in_progress
+    ImportInProgress.find_by(user_id: User.current.id, project_id: @project.id)
   end
 
   def flash_message(type, text)
@@ -727,7 +1002,14 @@ class ImporterController < ApplicationController
   # Raises NoIssueForUniqueValue if not found or MultipleIssuesForUniqueValue
   def issue_for_unique_attr(unique_attr, attr_value, row_data)
     if @issue_by_unique_attr.key?(attr_value)
-      return @issue_by_unique_attr[attr_value]
+      cached = @issue_by_unique_attr[attr_value]
+      # The cache is authoritative for values this import created: a nil hit
+      # means the issue was deleted after an earlier batch imported it, so
+      # treat it as not found and let the row fail gracefully instead of
+      # crashing the whole batch request.
+      return cached if cached
+
+      raise NoIssueForUniqueValue, "Issue with #{unique_attr} of '#{attr_value}' was deleted"
     end
 
     if use_issue_id && unique_attr == 'standard_field-id'
@@ -785,7 +1067,7 @@ class ImporterController < ApplicationController
 
       @user_by_login[login] = user
     rescue ActiveRecord::RecordNotFound
-      if params[:use_anonymous]
+      if import_param('use_anonymous')
         @user_by_login[login] = User.anonymous
       else
         @unfound_class = 'User'

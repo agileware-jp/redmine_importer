@@ -5,11 +5,18 @@ module RedmineImporter
   # that haven't been imported yet (e.g., parent issues or relations
   # defined later in the CSV file).
   class DeferredCallbacks
-    def initialize(issue_cache:, messages:)
-      @pending = {}
+    # `pending` accepts previously persisted callbacks so unresolved forward
+    # references survive across batched import requests
+    # (ImportInProgress#import_settings round-trips them through JSON,
+    # turning callback-name symbols into strings — `execute` handles both).
+    def initialize(issue_cache:, messages:, pending: {})
+      @pending = pending || {}
       @issue_cache = issue_cache
       @messages = messages
     end
+
+    # Unresolved callbacks, in a JSON-serializable form.
+    attr_reader :pending
 
     # Registers a callback to be executed when an issue with the given
     # unique_value is imported.
